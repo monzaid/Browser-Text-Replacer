@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "文本替换助手",
+  "version": "1.0.0",
+  "description": "通过 Ctrl+Shift+H 快捷键，对网页所有可编辑元素执行全局文本替换",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["src/styles/replacer-panel.css"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "commands": {
+    "toggle-replacer": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+H",
+        "mac": "Command+Shift+H"
+      },
+      "description": "打开/关闭文本替换面板"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "src/utils/constants.js",
+        "src/content/element-finder.js",
+        "src/content/text-highlighter.js",
+        "src/content/text-replacer.js",
+        "src/content/ui-injector.js",
+        "src/content/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "32": "icons/icon32.png",
+    "64": "icons/icon64.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>文本替换插件测试页面</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+      text-align: center;
+    }
+    .info {
+      background: #e3f2fd;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 30px;
+      text-align: center;
+    }
+    .info kbd {
+      background: #fff;
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      font-family: monospace;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: #555;
+    }
+    input[type="text"],
+    input[type="email"],
+    input[type="search"],
+    textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    textarea {
+      min-height: 100px;
+      resize: vertical;
+    }
+    .editable-box {
+      background: #fff;
+      border: 2px dashed #ddd;
+      border-radius: 6px;
+      padding: 15px;
+      min-height: 60px;
+    }
+    .editable-box:focus {
+      border-color: #667eea;
+      outline: none;
+    }
+    .section {
+      background: #fff;
+      padding: 25px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+    .section h2 {
+      margin-top: 0;
+      font-size: 18px;
+      color: #667eea;
+    }
+    .test-text {
+      color: #ff5722;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 文本替换插件测试页面</h1>
+  
+  <div class="info">
+    <p>安装插件后，按 <kbd>Ctrl+Shift+H</kbd> (Mac: <kbd>Cmd+Shift+H</kbd>) 打开替换面板</p>
+    <p>尝试将所有 <span class="test-text">"测试文本"</span> 替换为其他内容</p>
+  </div>
+
+  <!-- 文本输入框测试 -->
+  <div class="section">
+    <h2>文本输入框</h2>
+    <div class="form-group">
+      <label>用户名</label>
+      <input type="text" value="这是一个测试文本输入框" placeholder="请输入用户名">
+    </div>
+    <div class="form-group">
+      <label>邮箱</label>
+      <input type="email" value="test@example.com - 测试文本邮箱">
+    </div>
+    <div class="form-group">
+      <label>搜索框</label>
+      <input type="search" value="搜索测试文本">
+    </div>
+  </div>
+
+  <!-- 文本域测试 -->
+  <div class="section">
+    <h2>文本域</h2>
+    <div class="form-group">
+      <label>多行文本</label>
+      <textarea>这是一个多行文本框。
+包含多行测试文本。
+每一行都有测试文本。</textarea>
+    </div>
+  </div>
+
+  <!-- ContentEditable 测试 -->
+  <div class="section">
+    <h2>富文本编辑器 (contenteditable)</h2>
+    <div class="form-group">
+      <label>可编辑区域 1</label>
+      <div class="editable-box" contenteditable="true">
+        这是一段测试文本，你可以直接点击编辑。
+      </div>
+    </div>
+    <div class="form-group">
+      <label>可编辑区域 2</label>
+      <div class="editable-box" contenteditable="true">
+        另一个测试文本区域，同样支持替换功能。
+      </div>
+    </div>
+  </div>
+
+  <!-- 混合测试 -->
+  <div class="section">
+    <h2>混合测试</h2>
+    <div class="form-group">
+      <label>名字</label>
+      <input type="text" value="测试文本先生">
+    </div>
+    <div class="form-group">
+      <label>描述</label>
+      <textarea>这里是测试文本的描述区域。
+包含多种测试文本内容。</textarea>
+    </div>
+    <div class="form-group">
+      <label>备注</label>
+      <div class="editable-box" contenteditable="true">
+        备注中的测试文本也会被替换！
+      </div>
+    </div>
+  </div>
+
+  <!-- 动态元素测试 (MutationObserver) -->
+  <div class="section">
+    <h2>动态元素测试 (MutationObserver)</h2>
+    <p style="color: #666; margin-bottom: 15px;">
+      点击下方按钮动态创建输入框，测试插件是否能自动检测到新增的可编辑元素。
+    </p>
+    <button type="button" id="add-input-btn" style="
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    ">
+      ➕ 动态添加输入框
+    </button>
+    <div id="dynamic-container" style="margin-top: 15px;"></div>
+  </div>
+
+  <!-- iframe 测试 -->
+  <div class="section">
+    <h2>iframe 测试</h2>
+    <p style="color: #666; margin-bottom: 15px;">
+      下方是一个同源 iframe，测试插件是否能搜索和替换 iframe 内的文本。
+    </p>
+    <iframe
+      id="test-iframe"
+      srcdoc='
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: sans-serif; padding: 15px; background: #fafafa; }
+            input, textarea { width: 100%; padding: 8px; margin: 8px 0; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px; }
+            .editable { border: 2px dashed #ddd; padding: 10px; min-height: 40px; background: white; }
+            .editable:focus { border-color: #667eea; outline: none; }
+            h3 { color: #667eea; margin-top: 0; }
+          </style>
+        </head>
+        <body>
+          <h3>📄 iframe 内部 - 测试区域</h3>
+          <input type="text" value="iframe 中的测试文本输入框">
+          <textarea>iframe 中的多行测试文本区域。
+每一行都包含测试文本。</textarea>
+          <div class="editable" contenteditable="true">iframe 中的可编辑测试文本</div>
+        </body>
+        </html>
+      '
+      style="
+        width: 100%;
+        height: 300px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+      "
+    ></iframe>
+  </div>
+
+  <!-- 跨域 iframe 测试 -->
+  <div class="section">
+    <h2>跨域 iframe 测试 (应安全忽略)</h2>
+    <p style="color: #666; margin-bottom: 15px;">
+      跨域 iframe 无法被访问，插件应安全忽略它。
+    </p>
+    <iframe
+      src="https://www.example.com"
+      style="
+        width: 100%;
+        height: 200px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+      "
+    ></iframe>
+  </div>
+
+  <div class="info">
+    <p>💡 提示：替换后会自动触发 input 和 change 事件，网页框架能感知到变化</p>
+  </div>
+
+  <script>
+    // 动态添加输入框功能
+    document.getElementById('add-input-btn').addEventListener('click', function() {
+      const container = document.getElementById('dynamic-container');
+      
+      const div = document.createElement('div');
+      div.style.marginBottom = '10px';
+      
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = '动态创建的测试文本输入框 ' + (container.children.length + 1);
+      input.style.width = '100%';
+      input.style.padding = '8px';
+      input.style.border = '1px solid #ddd';
+      input.style.borderRadius = '4px';
+      input.style.boxSizing = 'border-box';
+      
+      div.appendChild(input);
+      container.appendChild(div);
+      
+      // 聚焦到新创建的输入框
+      input.focus();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,200 @@
+# 文本替换助手 V2 — 决策清单
+# 日期: 2026-07-02
+# 共 14 个决策, 0 OPEN
+
+decisions:
+  - id: G1
+    layer: goal
+    node: 功能范围
+    decision: 6 项功能按优先级：界面覆盖 → 历史收藏 → 快捷键 → 预览 → 主题
+    alternatives:
+      - option: 撤销/重做
+        rejected_reason: 与浏览器原生撤销冲突，用户要求移除
+    rationale: 解决最大痛点（覆盖问题）→ 提升日常效率（历史/快捷键）→ 增强差异化体验（预览/主题）
+    implications: 两批交付，V1.1 重构 + V1.2 功能
+    status: RESOLVED
+
+  - id: C1
+    layer: constraint
+    node: 界面隔离策略
+    decision: Shadow DOM (attachShadow, mode: 'open')
+    alternatives:
+      - option: 动态 z-index
+        rejected_reason: 治标不治本，无法彻底解决覆盖
+      - option: dialog/popover API
+        rejected_reason: 兼容性不足 (Chrome 120+)
+    rationale: 一劳永逸解决页面元素覆盖，面板样式与页面完全隔离
+    implications: 需要 MessageProxy 跨 Shadow DOM 通信，CSS 需内联注入
+    status: RESOLVED
+
+  - id: C2
+    layer: constraint
+    node: 构建工具
+    decision: esbuild 打包，Vanilla JS
+    alternatives:
+      - option: 保持 IIFE 无构建
+        rejected_reason: 模块增多后依赖管理混乱
+      - option: TypeScript
+        rejected_reason: 类型系统对当前阶段过度
+    rationale: 解决 IIFE 加载顺序依赖，支持 ES6 import/export，Tree Shaking 减小体积
+    implications: 新增 npm run build 环节，双入口（background IIFE + content ESM）
+    status: RESOLVED
+
+  - id: C3
+    layer: constraint
+    node: 持久化存储
+    decision: chrome.storage.local
+    alternatives:
+      - option: chrome.storage.sync
+        rejected_reason: 100KB 限制 + 写入频率限制
+      - option: IndexedDB
+        rejected_reason: 对插件场景过重
+    rationale: 无容量限制，读写快，数据量合理（20 历史 + 100 预设 + 主题）
+    implications: 三键存储结构 (history + presets + meta)
+    status: RESOLVED
+
+  - id: C4
+    layer: constraint
+    node: 交付节奏
+    decision: 两批迭代 (V1.1 + V1.2)
+    alternatives:
+      - option: 单次大版本
+        rejected_reason: 风险过高，架构重构需独立验证
+      - option: 三批迭代
+        rejected_reason: 撤销移除后工作量减少，可合并
+    rationale: Shadow DOM + esbuild 单独发版验证，功能聚合第二批交付
+    implications: V1.1 仅重构无新功能，V1.2 四项新功能
+    status: RESOLVED
+
+  - id: C5
+    layer: constraint
+    node: 浏览器兼容
+    decision: Chrome 88+ / Edge 88+
+    alternatives:
+      - option: 提升到 110+
+        rejected_reason: 无必要，Shadow DOM 基础 API 在 53+ 即支持
+      - option: 扩展到 Firefox
+        rejected_reason: MV3 兼容差异大，当前不覆盖
+    rationale: 保持现有兼容范围，Shadow DOM/ESM content scripts 均兼容
+    implications: 不使用 adoptedStyleSheets、popover 等新 API
+    status: RESOLVED
+
+  - id: A1
+    layer: architecture
+    node: 目录结构
+    decision: 保持领域划分 + content/core/ + content/ui/ + storage/
+    alternatives:
+      - option: panel/engine/ 分离
+        rejected_reason: 改动过大，现有划分已经清晰
+    rationale: 最小改动完成模块化，content/ 下按功能拆分 core(引擎) 和 ui(面板)
+    implications: 新增 storage/ 和 message-proxy.js
+    status: RESOLVED
+
+  - id: A2
+    layer: architecture
+    node: 打包输出
+    decision: 单 content entry，双入口 (background + content)
+    alternatives:
+      - option: 多入口按模块分离
+        rejected_reason: 失去 Tree Shaking 优势
+    rationale: 单 content entry 最小化 manifest 改动，Tree Shaking 消除死代码
+    implications: 动态 import() 用于懒加载，manifest 只引用一个 JS 文件
+    status: RESOLVED
+
+  - id: A3
+    layer: architecture
+    node: 跨边界通信
+    decision: MessageProxy + CQRS (命令/事件分离)
+    alternatives:
+      - option: CustomEvent 事件总线
+        rejected_reason: Shadow DOM 跨边界 composed 行为差异
+      - option: 直接引用
+        rejected_reason: 紧耦合，不利于测试和扩展
+    rationale: 命令-查询分离，请求-响应模式，天然支持后续预览和存储功能
+    implications: Panel 发命令 → engine 处理 → 事件通知 panel 更新 UI
+    status: RESOLVED
+
+  - id: A4
+    layer: architecture
+    node: 高亮模块归属
+    decision: 独立 module，engine 和 panel 双路径调用
+    alternatives:
+      - option: 留在 engine 内部
+        rejected_reason: 预览 Diff 高亮需要复用
+    rationale: 纯渲染层，无状态，作为共享服务
+    implications: 暴露 highlightElement/clearHighlight/clearAllHighlights 三个 API
+    status: RESOLVED
+
+  - id: A5
+    layer: architecture
+    node: 样式策略
+    decision: V1.1 内联 <style> → V1.2 CSS 变量
+    alternatives:
+      - option: <link> 外部加载
+        rejected_reason: Shadow Root 内需额外 chrome.runtime.getURL 配置
+    rationale: V1.1 先保证正确性，V1.2 主题切换自然推动变量迁移
+    implications: esbuild CSS text loader，运行时注入 shadowRoot
+    status: RESOLVED
+
+  - id: D1
+    layer: detail
+    node: 预览交互模型
+    decision: 单击切换状态(绿=替换/黄=不替换)，双击即时替换，应用预览按钮批量提交
+    alternatives:
+      - option: 仅批量确认
+        rejected_reason: 粒度太粗，无法选择性替换
+    rationale: 灵活精细控制，颜色与搜索高亮一致降低认知负担
+    implications: overlay pointer-events: auto，e.stopPropagation()，预览与应用预览按钮联动
+    status: RESOLVED
+
+  - id: D2
+    layer: detail
+    node: 撤销/重做
+    decision: 移除，使用浏览器原生 Ctrl+Z/Ctrl+Y
+    rationale: 用户明确要求，避免与浏览器原生机制冲突
+    implications: 引擎层无需维护快照栈，代码简化
+    status: RESOLVED
+    depends_on: []
+
+  - id: D3
+    layer: detail
+    node: 存储 Schema
+    decision: 三键分离 + 索引 + 支持导入导出
+    alternatives:
+      - option: 统一键存储
+        rejected_reason: 导入导出预设时需整体读写
+    rationale: history + presets + meta 独立管理，预设导入导出不触及历史
+    implications: LRU 淘汰(20)，预设上限(100)，import/export JSON
+    status: RESOLVED
+
+  - id: D4
+    layer: detail
+    node: Enter 按键行为
+    decision: 上下文感知 + Shift+Enter 反向
+    rationale: 查找框 Enter=下一匹配，替换框 Enter=替换当前，Shift+Enter=上一匹配
+    implications: Shadow Root 内 keydown 事件监听，与 VSCode 行为一致
+    status: RESOLVED
+
+  - id: D5
+    layer: detail
+    node: 主题取色器
+    decision: 原生 <input type="color"> + 预定义色板 × 3 域
+    rationale: 用户要求分别设置面板、搜索高亮、预览高亮的颜色
+    implications: HSL 亮度偏移自动派生辅助色，Custom 模式独立存储
+    status: RESOLVED
+
+  - id: D6
+    layer: detail
+    node: 工具栏布局
+    decision: 分组折叠，核心 5 按钮常驻，预览入替换行，主题/历史入 ... 菜单
+    rationale: 保持面板小巧，核心操作用户直达，辅助功能折叠
+    implications: 预览按钮在替换行仅在有匹配时可见
+    status: RESOLVED
+
+  - id: D7
+    layer: detail
+    node: 预览点击路由
+    decision: overlay 拦截双击，e.stopPropagation() 阻止穿透
+    rationale: 预览模式 overlay pointer-events: auto，拦截双击执行即时替换
+    implications: 更新 overlay + 底层元素值，该匹配从预览列表移除
+    status: RESOLVED
