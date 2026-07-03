@@ -1,0 +1,18 @@
+{
+  "name": "text-replacer-helper",
+  "version": "2.0.0",
+  "description": "Chrome 扩展 - 文本替换助手 V2 (esbuild 构建)",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "dev": "node scripts/build.js --watch",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "jsdom": "^29.1.1",
+    "vitest": "^4.1.9"
+  },
+  "author": "",
+  "license": "MIT"
+}

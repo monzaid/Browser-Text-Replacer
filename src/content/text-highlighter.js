@@ -314,8 +314,12 @@
     const wrapper = ensureWrapper(targetElement, frame);
     wrapper.appendChild(overlay);
     
-    // 更新覆盖层位置
-    updateOverlayPosition(overlay, targetElement);
+    // overlay 覆盖整个 wrapper，wrapper 大小由内部元素决定
+    // 使用 100% 而非 getBoundingClientRect 避免 iframe 内坐标偏移
+    overlay.style.left = '0';
+    overlay.style.top = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
   }
 
   /**
@@ -377,14 +381,19 @@
 
   /**
    * 更新覆盖层位置（响应窗口滚动等）
+   *
+   * 注意：overlay 在 wrapper 内部，wrapper 紧贴目标元素（在同一文档内）。
+   * 使用 100% 而非 getBoundingClientRect()，因为：
+   * - 主文档中：getBoundingClientRect() 可用，但 100% 更简洁
+   * - iframe 内：getBoundingClientRect() 返回相对于顶级视口的坐标，
+   *   而 overlay 定位基准是 wrapper（iframe 文档内），两者不一致导致偏移
+   * wrapper 的大小由内部目标元素撑开，所以 100% 始终正确。
    */
   function updateOverlayPosition(overlay, targetElement) {
-    const rect = targetElement.getBoundingClientRect();
-    
     overlay.style.left = '0';
     overlay.style.top = '0';
-    overlay.style.width = rect.width + 'px';
-    overlay.style.height = rect.height + 'px';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
   }
 
   /**
