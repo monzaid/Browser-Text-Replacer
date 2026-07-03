@@ -2690,17 +2690,38 @@ function ensureShadowRoot() {
   }
   return host;
 }
+var disabledTabindexElements = [];
+function disableFocusTraps() {
+  const traps = document.querySelectorAll('[tabindex="-1"]');
+  traps.forEach((el) => {
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return;
+    if (el === hostElement) return;
+    disabledTabindexElements.push({ el, tabindex: el.getAttribute("tabindex") });
+    el.removeAttribute("tabindex");
+  });
+}
+function restoreFocusTraps() {
+  disabledTabindexElements.forEach(({ el, tabindex }) => {
+    if (tabindex !== null) {
+      el.setAttribute("tabindex", tabindex);
+    }
+  });
+  disabledTabindexElements.length = 0;
+}
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.action) {
     case MessageActions.SHOW_REPLACER_PANEL: {
       const host = ensureShadowRoot();
       host.hidden = false;
+      disableFocusTraps();
       show();
       sendResponse({ success: true });
       break;
     }
     case MessageActions.HIDE_REPLACER_PANEL:
       hide();
+      restoreFocusTraps();
       if (hostElement) hostElement.hidden = true;
       sendResponse({ success: true });
       break;
