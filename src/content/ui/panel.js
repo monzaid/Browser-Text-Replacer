@@ -7,7 +7,6 @@ import { UIConstants } from '../../shared/constants.js';
 import { proxy } from '../message-proxy.js';
 import { renderSearchBar } from './search-bar.js';
 import { renderReplaceBar } from './replace-bar.js';
-import { renderToolbar } from './toolbar.js';
 import { initTheme } from './theme-picker.js';
 
 /** 共享搜索选项 */
@@ -43,10 +42,6 @@ export function render(shadowRoot) {
   // replace-bar 区域
   renderReplaceBar(panelElement, searchOptions, getPanelElement);
 
-  // toolbar 区域
-  const hostEl = shadowRoot.host;
-  renderToolbar(panelElement, hostEl);
-
   // 状态提示
   const statusEl = document.createElement('div');
   statusEl.className = 'tr-status';
@@ -57,6 +52,7 @@ export function render(shadowRoot) {
   shadowRoot.appendChild(panelElement);
 
   // 初始化主题
+  const hostEl = shadowRoot.host;
   initTheme(hostEl);
 
   // 全局面板键盘快捷键
@@ -66,21 +62,6 @@ export function render(shadowRoot) {
       e.preventDefault();
       hide();
       return;
-    }
-
-    // Tab → 在查找/替换输入框间循环切换（仅在替换行可见时切换到替换输入框）
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const findInput = panelElement.querySelector(`#${UIConstants.FIND_INPUT_ID}`);
-      const replaceInput = panelElement.querySelector(`#${UIConstants.REPLACE_INPUT_ID}`);
-      const replaceRow = panelElement.querySelector('#tr-replace-row');
-      const replaceVisible = replaceRow && replaceRow.classList.contains(UIConstants.REPLACE_VISIBLE_CLASS);
-
-      if (document.activeElement === findInput && replaceInput && replaceVisible) {
-        replaceInput.focus();
-      } else {
-        if (findInput) findInput.focus();
-      }
     }
   });
 
@@ -156,15 +137,17 @@ export function hide() {
 function toggleReplaceRow() {
   if (!panelElement) return;
   const replaceRow = panelElement.querySelector('#tr-replace-row');
-  const toolbarRow = panelElement.querySelector('#tr-toolbar-row');
 
   if (replaceRow) {
     replaceRow.classList.toggle(UIConstants.REPLACE_VISIBLE_CLASS);
     const isVisible = replaceRow.classList.contains(UIConstants.REPLACE_VISIBLE_CLASS);
 
-    // 同步切换工具栏行显示
-    if (toolbarRow) {
-      toolbarRow.style.display = isVisible ? '' : 'none';
+    // 折叠替换栏时关闭 custom 面板和历史/预设面板
+    if (!isVisible) {
+      const customPanel = panelElement.querySelector('#tr-custom-panel');
+      if (customPanel) customPanel.style.display = 'none';
+      const historyPanel = panelElement.querySelector('#tr-history-panel');
+      if (historyPanel) historyPanel.style.display = 'none';
     }
 
     // 更新切换按钮图标

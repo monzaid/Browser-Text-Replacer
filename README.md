@@ -1,142 +1,135 @@
 # 文本替换助手 (Text Replacer Helper)
 
-一个基于 Manifest V3 开发的浏览器插件，通过快捷键快速替换网页上所有可编辑元素中的文本。
+基于 Manifest V3 + Shadow DOM 隔离的浏览器扩展。通过快捷键唤起面板，在网页上进行查找、高亮、替换、预览替换等操作。
 
 ## 功能特点
 
-- ⌨️ **快捷键触发**：按 `Ctrl+Shift+H` (Mac: `Cmd+Shift+H`) 快速打开替换面板
-- 🌐 **全局替换**：一次性替换页面上所有可编辑元素中的文本
-- 🎯 **多种元素支持**：
-  - 文本输入框 (`<input type="text">`)
-  - 搜索框 (`<input type="search">`)
-  - 邮箱输入 (`<input type="email">`)
-  - 文本域 (`<textarea>`)
-  - 富文本编辑器 (`[contenteditable]`)
-- 🎨 **美观界面**：右上角悬浮面板，支持深色主题
-- 📊 **替换统计**：显示替换结果和匹配数量
-- ⚡ **即时反馈**：实时显示替换进度和结果
+### 核心
+- ⌨️ **快捷键触发**：`Ctrl+Shift+H` (Mac: `Cmd+Shift+H`) 唤起/关闭面板
+- 🔍 **实时搜索高亮**：输入即搜索，匹配项黄色高亮，当前匹配橙色高亮
+- ✏️ **智能替换**：当前匹配不可见时先跳转居中，再次点击执行替换
+- 👁 **预览替换**：进入预览模式，单击选中绿色标记，双击直接替换，批量应用
+- 📋 **正则/大小写/全词**：三种搜索选项自由组合
+- 📊 **匹配计数**：实时显示 `当前 / 总数`
+
+### 主题
+- 🎨 **四模式主题循环**：`自动 → 浅色 → 深色 → 自定义`，一键切换
+- 🖌 **自定义取色器**：面板主色 / 搜索高亮 / 预览高亮 三通道独立调节
+- 💾 **颜色预设保存**：将当前配色保存为预设，支持批量删除
+- 🎛 **内置色板**：Monokai、Nord、Solarized Dark/Light、One Dark
+
+### 数据
+- 📝 **历史记录**：记录最近查找/替换操作，点击回填
+- ⭐ **预设规则**：收藏常用查找→替换对，支持新增/修改/删除/导入/导出
+- 💾 **chrome.storage.local 持久化**：主题、预设跨会话保留
 
 ## 安装方法
 
 ### 开发模式安装
 
-1. 克隆或下载此项目到本地
-2. 打开 Chrome 浏览器，进入 `chrome://extensions/`
-3. 开启右上角的「开发者模式」
-4. 点击「加载已解压的扩展程序」
-5. 选择项目根目录
-6. 安装完成！
+1. 克隆项目并安装依赖：`npm install`
+2. 构建：`npm run build`
+3. 打开 Chrome，进入 `chrome://extensions/`
+4. 开启「开发者模式」→「加载已解压的扩展程序」→ 选择项目根目录
 
-### 准备图标文件
+### 图标文件
 
-在安装前，请确保 `icons/` 目录下有以下尺寸的图标文件：
-- `icon16.png` (16x16)
-- `icon32.png` (32x32)
-- `icon48.png` (48x48)
-- `icon64.png` (64x64)
-- `icon128.png` (128x128)
-
-如果没有图标，可以暂时使用占位图片或从网上下载免费图标。
+`icons/` 目录需包含：`icon16.png` / `icon32.png` / `icon48.png` / `icon64.png` / `icon128.png`
 
 ## 使用方法
 
-1. 在任意网页上，按下 `Ctrl+Shift+H` (Mac: `Cmd+Shift+H`)
-2. 右上角会弹出替换面板
-3. 输入要查找的文本
-4. 输入替换后的文本
-5. 点击「替换」按钮或按回车键执行替换
-6. 查看替换结果统计
+| 操作 | 方式 |
+|------|------|
+| 唤起面板 | `Ctrl+Shift+H` (Mac: `Cmd+Shift+H`) |
+| 查找 | 在查找输入框输入文本 |
+| 导航匹配 | `Enter` 下一个 / `Shift+Enter` 上一个 |
+| 替换当前 | 点击替换按钮或替换输入框 `Enter` |
+| 全部替换 | 点击「全部替换」按钮 |
+| 预览替换 | 点击 👁 进入预览，单击选中/双击替换，✓ 批量应用 |
+| 切换主题 | 点击 🔄 循环：自动→浅色→深色→自定义 |
+| 历史/预设 | 点击 📋 |
+| 关闭面板 | `Escape` |
+
+用户可在 `chrome://extensions/shortcuts` 自定义快捷键。
 
 ## 项目结构
 
 ```
 text-replacer-extension/
-├── manifest.json              # Manifest V3 配置文件
+├── manifest.json
+├── package.json
+├── vitest.config.js
+├── scripts/
+│   └── build.js               # esbuild 双入口构建脚本
 ├── icons/                     # 插件图标
-│   ├── icon16.png
-│   ├── icon32.png
-│   ├── icon48.png
-│   ├── icon64.png
-│   └── icon128.png
+├── dist/                      # 构建产物
+│   ├── content.js             # ESM content script
+│   └── background.js          # IIFE background script
 ├── src/
-│   ├── background/            # 后台服务
-│   │   └── service-worker.js  # Service Worker
-│   ├── content/               # 内容脚本
-│   │   ├── content.js         # 主入口
-│   │   ├── element-finder.js  # 元素查找器
-│   │   ├── text-replacer.js   # 替换逻辑
-│   │   └── ui-injector.js     # UI 注入器
-│   ├── styles/                # 样式文件
-│   │   └── replacer-panel.css
-│   └── utils/                 # 工具模块
-│       └── constants.js       # 常量定义
-├── plans/                     # 设计文档
-│   └── text-replacer-extension-design.md
-└── README.md                  # 本文件
+│   ├── background/
+│   │   └── index.js           # Service Worker
+│   ├── content/
+│   │   ├── index.js           # Shadow DOM host 管理 + 入口
+│   │   ├── message-proxy.js   # panel ↔ engine 消息代理 (CQRS)
+│   │   ├── core/
+│   │   │   ├── element-finder.js
+│   │   │   ├── text-highlighter.js
+│   │   │   └── text-replacer.js
+│   │   └── ui/
+│   │       ├── panel.js       # 面板 show/hide/render
+│   │       ├── search-bar.js  # 查找输入框 + 搜索选项
+│   │       ├── replace-bar.js # 替换栏 + 主题 + 历史/预设 + 自定义面板
+│   │       └── theme-picker.js# 主题定义 + applyCustomColors
+│   ├── storage/
+│   │   └── store.js           # chrome.storage.local 读写 (CQRS)
+│   ├── shared/
+│   │   ├── constants.js       # UIConstants, Icons, EditableSelectors
+│   │   └── utils.js
+│   └── styles/
+│       ├── panel.css
+│       └── overlay.css
+├── test/                      # Vitest 单元测试
+├── context/                   # AI 上下文 (设计/决策)
+├── context-output/            # AI 产出物 (设计文档/报告)
+└── plans/                     # 战略规划文档
 ```
 
 ## 技术栈
 
-- **Manifest V3**：最新的浏览器扩展 API
-- **ES6 Modules**：使用 ES6 模块化开发
-- **Vanilla JavaScript**：纯原生 JavaScript，无依赖
+- **Manifest V3** — Chrome 扩展最新规范
+- **Shadow DOM** — 面板与页面 DOM 完全隔离，CSS 不泄漏
+- **esbuild** — 双入口打包 (content: ESM, background: IIFE)
+- **MessageProxy + CQRS** — panel ↔ content engine 命令/事件通信
+- **chrome.storage.local** — 三键存储 (history / presets / meta)
+- **Vanilla JS** — 零运行时依赖
 
-## 开发说明
-
-### 快捷键修改
-
-如需修改快捷键，可以编辑 `manifest.json` 中的 `commands` 配置：
-
-```json
-{
-  "commands": {
-    "toggle-replacer": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+H",
-        "mac": "Command+Shift+H"
-      }
-    }
-  }
-}
-```
-
-用户也可以在 `chrome://extensions/shortcuts` 中自定义快捷键。
-
-### 添加新的可编辑元素类型
-
-编辑 `src/utils/constants.js` 中的 `EditableSelectors` 数组：
-
-```javascript
-export const EditableSelectors = [
-  'input[type="text"]',
-  'input[type="search"]',
-  // 添加新的选择器...
-];
-```
-
-## 边界情况处理
+## 边界情况
 
 | 场景 | 处理方式 |
 |------|----------|
-| 查找文本为空 | 禁用替换按钮，显示提示 |
-| 未找到匹配 | 显示"未找到匹配文本"警告 |
-| 元素被隐藏/禁用 | 自动跳过这些元素 |
-| contenteditable 元素 | 使用 innerText 处理 |
+| 查找文本为空 | 禁用替换按钮 |
+| 未找到匹配 | 显示"无结果" |
+| 动态加载元素 | MutationObserver 自动刷新高亮 |
+| iframe 内匹配 | overlay 覆盖 + 偏移修正 |
+| contenteditable | 本地文本节点索引映射 |
+| Bootstrap modal | 临时移除 `tabindex="-1"` 焦点陷阱 |
+| 当前匹配不在视口 | 首次替换跳转居中，再次执行替换 |
+| 跨域 iframe | 静默忽略 |
 
 ## 浏览器兼容性
 
 - Chrome 88+
 - Edge 88+
-- 其他基于 Chromium 的浏览器
+- 其他 Chromium 内核浏览器
+
+## 开发命令
+
+```bash
+npm run build     # 构建
+npm test          # 运行 Vitest
+```
 
 ## 许可证
 
 MIT License
 
-## 作者
-
-Roo Code
-
----
-
-如有问题或建议，欢迎反馈！

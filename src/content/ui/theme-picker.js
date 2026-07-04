@@ -188,7 +188,12 @@ export function applyTheme(mode, hostElement) {
     }
   }
 
-  saveTheme({ mode });
+  // 保存模式，同时保留已有的 custom 配置（避免 saveTheme({ mode }) 覆盖 custom）
+  getTheme().then(existing => {
+    const config = { mode };
+    if (existing.custom) config.custom = existing.custom;
+    saveTheme(config);
+  });
 }
 
 /**
@@ -197,7 +202,7 @@ export function applyTheme(mode, hostElement) {
  */
 export async function initTheme(hostElement) {
   const config = await getTheme();
-  const mode = config.mode || 'dark';
+  const mode = config.mode || 'auto';
 
   if (mode === 'custom' && config.custom) {
     applyCustomColors(
@@ -223,7 +228,7 @@ export async function initTheme(hostElement) {
  * @param {string} previewColor - 预览高亮色
  * @param {HTMLElement} hostElement
  */
-function applyCustomColors(panelColor, searchColor, previewColor, hostElement) {
+export function applyCustomColors(panelColor, searchColor, previewColor, hostElement) {
   if (!hostElement) return;
 
   const panelRGB = hexToRgb(panelColor);

@@ -57,6 +57,17 @@ export async function getHistory() {
 }
 
 /**
+ * 删除单条历史记录
+ * @param {string} id
+ */
+export async function deleteHistoryItem(id) {
+  const { [META_KEY]: meta, [HISTORY_KEY]: history } = await chrome.storage.local.get([META_KEY, HISTORY_KEY]);
+  if (meta) meta.recentHistoryIds = (meta.recentHistoryIds || []).filter(i => i !== id);
+  if (history) delete history[id];
+  await chrome.storage.local.set({ [META_KEY]: meta, [HISTORY_KEY]: history });
+}
+
+/**
  * 清空所有历史记录
  */
 export async function clearHistory() {
@@ -129,6 +140,56 @@ export async function getPresets() {
   const { [META_KEY]: meta, [PRESETS_KEY]: presets } =
     await chrome.storage.local.get([META_KEY, PRESETS_KEY]);
   return (meta?.presetIds || []).map((id) => presets?.[id]).filter(Boolean);
+}
+
+/**
+ * 更新已有预设（不改变 ID 和 createdAt）
+ * @param {string} id
+ * @param {string} name
+ * @param {string} findText
+ * @param {string} replaceText
+ * @param {Object} [options={}]
+ */
+export async function updatePreset(id, name, findText, replaceText, options = {}) {
+  const prevQueue = saveQueue;
+  let resolveCurrent;
+  saveQueue = new Promise(r => { resolveCurrent = r; });
+
+  await prevQueue;
+
+  try {
+    const { [PRESETS_KEY]: presets } = await chrome.storage.local.get(PRESETS_KEY);
+    const currentPresets = presets || {};
+
+    if (!currentPresets[id]) {
+      throw new Error('预设不存在');
+    }
+
+    currentPresets[id] = {
+      ...currentPresets[id],
+      name,
+      findText,
+      replaceText,
+      options,
+    };
+
+    await chrome.storage.local.set({ [PRESETS_KEY]: currentPresets });
+  } finally {
+    resolveCurrent();
+  }
+}
+
+/**
+ * 更新预设名称
+ * @param {string} id
+ * @param {string} name
+ */
+export async function updatePresetName(id, name) {
+  const { [PRESETS_KEY]: presets } = await chrome.storage.local.get(PRESETS_KEY);
+  if (presets && presets[id]) {
+    presets[id].name = name;
+    await chrome.storage.local.set({ [PRESETS_KEY]: presets });
+  }
 }
 
 /**

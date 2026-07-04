@@ -720,6 +720,12 @@ async function getHistory() {
   const { [META_KEY]: meta, [HISTORY_KEY]: history } = await chrome.storage.local.get([META_KEY, HISTORY_KEY]);
   return ((meta == null ? void 0 : meta.recentHistoryIds) || []).map((id) => history == null ? void 0 : history[id]).filter(Boolean);
 }
+async function deleteHistoryItem(id) {
+  const { [META_KEY]: meta, [HISTORY_KEY]: history } = await chrome.storage.local.get([META_KEY, HISTORY_KEY]);
+  if (meta) meta.recentHistoryIds = (meta.recentHistoryIds || []).filter((i) => i !== id);
+  if (history) delete history[id];
+  await chrome.storage.local.set({ [META_KEY]: meta, [HISTORY_KEY]: history });
+}
 var saveQueue = Promise.resolve();
 async function savePreset(name, findText, replaceText, options = {}) {
   const prevQueue = saveQueue;
@@ -729,9 +735,9 @@ async function savePreset(name, findText, replaceText, options = {}) {
   });
   await prevQueue;
   try {
-    const { [META_KEY]: meta, [PRESETS_KEY]: presets2 } = await chrome.storage.local.get([META_KEY, PRESETS_KEY]);
+    const { [META_KEY]: meta, [PRESETS_KEY]: presets } = await chrome.storage.local.get([META_KEY, PRESETS_KEY]);
     const currentMeta = meta || { presetIds: [], favoriteIds: [] };
-    const currentPresets = presets2 || {};
+    const currentPresets = presets || {};
     if (!Array.isArray(currentMeta.presetIds)) {
       currentMeta.presetIds = [];
     }
@@ -751,8 +757,33 @@ async function savePreset(name, findText, replaceText, options = {}) {
   }
 }
 async function getPresets() {
-  const { [META_KEY]: meta, [PRESETS_KEY]: presets2 } = await chrome.storage.local.get([META_KEY, PRESETS_KEY]);
-  return ((meta == null ? void 0 : meta.presetIds) || []).map((id) => presets2 == null ? void 0 : presets2[id]).filter(Boolean);
+  const { [META_KEY]: meta, [PRESETS_KEY]: presets } = await chrome.storage.local.get([META_KEY, PRESETS_KEY]);
+  return ((meta == null ? void 0 : meta.presetIds) || []).map((id) => presets == null ? void 0 : presets[id]).filter(Boolean);
+}
+async function updatePreset(id, name, findText, replaceText, options = {}) {
+  const prevQueue = saveQueue;
+  let resolveCurrent;
+  saveQueue = new Promise((r) => {
+    resolveCurrent = r;
+  });
+  await prevQueue;
+  try {
+    const { [PRESETS_KEY]: presets } = await chrome.storage.local.get(PRESETS_KEY);
+    const currentPresets = presets || {};
+    if (!currentPresets[id]) {
+      throw new Error("\u9884\u8BBE\u4E0D\u5B58\u5728");
+    }
+    currentPresets[id] = {
+      ...currentPresets[id],
+      name,
+      findText,
+      replaceText,
+      options
+    };
+    await chrome.storage.local.set({ [PRESETS_KEY]: currentPresets });
+  } finally {
+    resolveCurrent();
+  }
 }
 async function deletePreset(id) {
   const prevQueue = saveQueue;
@@ -762,9 +793,9 @@ async function deletePreset(id) {
   });
   await prevQueue;
   try {
-    const { [META_KEY]: meta, [PRESETS_KEY]: presets2 } = await chrome.storage.local.get([META_KEY, PRESETS_KEY]);
+    const { [META_KEY]: meta, [PRESETS_KEY]: presets } = await chrome.storage.local.get([META_KEY, PRESETS_KEY]);
     const currentMeta = meta || { presetIds: [], favoriteIds: [] };
-    const currentPresets = presets2 || {};
+    const currentPresets = presets || {};
     if (!Array.isArray(currentMeta.presetIds)) {
       currentMeta.presetIds = [];
     }
@@ -779,8 +810,8 @@ async function deletePreset(id) {
   }
 }
 async function exportPresets() {
-  const presets2 = await getPresets();
-  return JSON.stringify(presets2, null, 2);
+  const presets = await getPresets();
+  return JSON.stringify(presets, null, 2);
 }
 async function importPresets(json) {
   let data;
@@ -1534,10 +1565,268 @@ function updateMatchCount(el, result) {
   }
 }
 
+// src/content/ui/theme-picker.js
+var themes = {
+  dark: {
+    "--tr-bg": "#252526",
+    "--tr-text": "#cccccc",
+    "--tr-border": "#454545",
+    "--tr-input-bg": "#3c3c3c",
+    "--tr-input-text": "#cccccc",
+    "--tr-placeholder": "#858585",
+    "--tr-btn-hover": "#3c3c3c",
+    "--tr-btn-active-bg": "#454545",
+    "--tr-accent": "#0e639c",
+    "--tr-accent-text": "#ffffff",
+    "--tr-highlight-match": "rgba(255, 215, 0, 0.3)",
+    "--tr-highlight-current": "rgba(255, 100, 0, 0.5)",
+    "--tr-overlay-match": "rgba(255, 215, 0, 0.4)",
+    "--tr-overlay-current": "rgba(255, 100, 0, 0.6)",
+    "--tr-scrollbar-track": "#1e1e1e",
+    "--tr-scrollbar-thumb": "#424242",
+    "--tr-success": "#4ec9b0",
+    "--tr-warning": "#ce9178",
+    "--tr-error": "#f14c4c"
+  },
+  light: {
+    "--tr-bg": "#ffffff",
+    "--tr-text": "#333333",
+    "--tr-border": "#cccccc",
+    "--tr-input-bg": "#f3f3f3",
+    "--tr-input-text": "#333333",
+    "--tr-placeholder": "#999999",
+    "--tr-btn-hover": "#e8e8e8",
+    "--tr-btn-active-bg": "#d4d4d4",
+    "--tr-accent": "#0078d4",
+    "--tr-accent-text": "#ffffff",
+    "--tr-highlight-match": "rgba(255, 200, 0, 0.4)",
+    "--tr-highlight-current": "rgba(255, 100, 0, 0.5)",
+    "--tr-overlay-match": "rgba(255, 200, 0, 0.4)",
+    "--tr-overlay-current": "rgba(255, 100, 0, 0.6)",
+    "--tr-scrollbar-track": "#f3f3f3",
+    "--tr-scrollbar-thumb": "#c1c1c1",
+    "--tr-success": "#107c10",
+    "--tr-warning": "#d83b01",
+    "--tr-error": "#a80000"
+  },
+  auto: {
+    "--tr-bg": "#252526",
+    "--tr-text": "#cccccc",
+    "--tr-border": "#454545",
+    "--tr-input-bg": "#3c3c3c",
+    "--tr-input-text": "#cccccc",
+    "--tr-placeholder": "#858585",
+    "--tr-btn-hover": "#3c3c3c",
+    "--tr-btn-active-bg": "#454545",
+    "--tr-accent": "#0e639c",
+    "--tr-accent-text": "#ffffff",
+    "--tr-highlight-match": "rgba(255, 215, 0, 0.3)",
+    "--tr-highlight-current": "rgba(255, 100, 0, 0.5)",
+    "--tr-overlay-match": "rgba(255, 215, 0, 0.4)",
+    "--tr-overlay-current": "rgba(255, 100, 0, 0.6)",
+    "--tr-scrollbar-track": "#1e1e1e",
+    "--tr-scrollbar-thumb": "#424242",
+    "--tr-success": "#4ec9b0",
+    "--tr-warning": "#ce9178",
+    "--tr-error": "#f14c4c"
+  },
+  custom: {
+    "--tr-bg": "#252526",
+    "--tr-text": "#cccccc",
+    "--tr-border": "#454545",
+    "--tr-input-bg": "#3c3c3c",
+    "--tr-input-text": "#cccccc",
+    "--tr-placeholder": "#858585",
+    "--tr-btn-hover": "#3c3c3c",
+    "--tr-btn-active-bg": "#454545",
+    "--tr-accent": "#0e639c",
+    "--tr-accent-text": "#ffffff",
+    "--tr-highlight-match": "rgba(255, 215, 0, 0.3)",
+    "--tr-highlight-current": "rgba(255, 100, 0, 0.5)",
+    "--tr-overlay-match": "rgba(255, 215, 0, 0.4)",
+    "--tr-overlay-current": "rgba(255, 100, 0, 0.6)",
+    "--tr-scrollbar-track": "#1e1e1e",
+    "--tr-scrollbar-thumb": "#424242",
+    "--tr-success": "#4ec9b0",
+    "--tr-warning": "#ce9178",
+    "--tr-error": "#f14c4c"
+  }
+};
+function hexToRgb(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : { r: 0, g: 0, b: 0 };
+}
+function hexToRgba(hex, alpha) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+function lightenColor(hex, percent) {
+  const { r, g, b } = hexToRgb(hex);
+  const factor = 1 + percent / 100;
+  return `rgb(${Math.min(255, Math.round(r * factor))}, ${Math.min(255, Math.round(g * factor))}, ${Math.min(255, Math.round(b * factor))})`;
+}
+function darkenColor(hex, percent) {
+  const { r, g, b } = hexToRgb(hex);
+  const factor = 1 - percent / 100;
+  return `rgb(${Math.max(0, Math.round(r * factor))}, ${Math.max(0, Math.round(g * factor))}, ${Math.max(0, Math.round(b * factor))})`;
+}
+function applyTheme(mode, hostElement2) {
+  if (!hostElement2) return;
+  const vars = themes[mode] || themes["dark"];
+  for (const [key, value] of Object.entries(vars)) {
+    hostElement2.style.setProperty(key, value);
+  }
+  if (mode === "auto") {
+    const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    if (prefersDark) {
+      for (const [key, value] of Object.entries(themes["dark"])) {
+        hostElement2.style.setProperty(key, value);
+      }
+    } else {
+      for (const [key, value] of Object.entries(themes["light"])) {
+        hostElement2.style.setProperty(key, value);
+      }
+    }
+  }
+  getTheme().then((existing) => {
+    const config = { mode };
+    if (existing.custom) config.custom = existing.custom;
+    saveTheme(config);
+  });
+}
+async function initTheme(hostElement2) {
+  const config = await getTheme();
+  const mode = config.mode || "auto";
+  if (mode === "custom" && config.custom) {
+    applyCustomColors(
+      config.custom.panelBg || "#252526",
+      config.custom.searchHighlight || "#ffd700",
+      config.custom.previewHighlight || "#00ff00",
+      hostElement2
+    );
+    saveTheme({ mode: "custom", custom: config.custom });
+  } else {
+    applyTheme(mode, hostElement2);
+  }
+}
+function applyCustomColors(panelColor, searchColor, previewColor, hostElement2) {
+  if (!hostElement2) return;
+  const panelRGB = hexToRgb(panelColor);
+  const isDark = panelRGB.r * 0.299 + panelRGB.g * 0.587 + panelRGB.b * 0.114 < 128;
+  hostElement2.style.setProperty("--tr-bg", panelColor);
+  hostElement2.style.setProperty("--tr-text", isDark ? "#e0e0e0" : "#222222");
+  hostElement2.style.setProperty("--tr-border", isDark ? "#454545" : "#cccccc");
+  hostElement2.style.setProperty("--tr-input-bg", isDark ? lightenColor(panelColor, 10) : darkenColor(panelColor, 5));
+  hostElement2.style.setProperty("--tr-input-text", isDark ? "#e0e0e0" : "#222222");
+  hostElement2.style.setProperty("--tr-placeholder", isDark ? "#858585" : "#999999");
+  hostElement2.style.setProperty("--tr-btn-hover", isDark ? lightenColor(panelColor, 8) : darkenColor(panelColor, 8));
+  hostElement2.style.setProperty("--tr-btn-active-bg", isDark ? lightenColor(panelColor, 16) : darkenColor(panelColor, 16));
+  hostElement2.style.setProperty("--tr-accent", "#0e639c");
+  hostElement2.style.setProperty("--tr-accent-text", "#ffffff");
+  hostElement2.style.setProperty("--tr-highlight-match", hexToRgba(searchColor, 0.3));
+  hostElement2.style.setProperty("--tr-highlight-current", hexToRgba(searchColor, 0.5));
+  hostElement2.style.setProperty("--tr-overlay-match", hexToRgba(searchColor, 0.4));
+  hostElement2.style.setProperty("--tr-overlay-current", hexToRgba(searchColor, 0.6));
+  hostElement2.style.setProperty("--tr-preview-selected", hexToRgba(previewColor, 0.4));
+  hostElement2.style.setProperty("--tr-scrollbar-track", isDark ? "#1e1e1e" : "#f3f3f3");
+  hostElement2.style.setProperty("--tr-scrollbar-thumb", isDark ? "#424242" : "#c1c1c1");
+  hostElement2.style.setProperty("--tr-success", isDark ? "#4ec9b0" : "#107c10");
+  hostElement2.style.setProperty("--tr-warning", isDark ? "#ce9178" : "#d83b01");
+  hostElement2.style.setProperty("--tr-error", isDark ? "#f14c4c" : "#a80000");
+}
+
 // src/content/ui/replace-bar.js
+var toastTimer = null;
+function showToast(message) {
+  const panel = _getPanelElement ? _getPanelElement() : null;
+  if (!panel) return;
+  const oldToast = panel.querySelector("#tr-toast");
+  if (oldToast) oldToast.remove();
+  if (toastTimer) clearTimeout(toastTimer);
+  const toast = document.createElement("div");
+  toast.id = "tr-toast";
+  toast.style.cssText = "position:absolute;top:-30px;left:50%;transform:translateX(-50%);padding:4px 14px;font-size:12px;color:var(--tr-success,#4ec9b0);background:var(--tr-bg,#252526);border:1px solid var(--tr-border,#454545);border-radius:4px;z-index:100;white-space:nowrap;pointer-events:none;";
+  toast.textContent = message;
+  panel.appendChild(toast);
+  toastTimer = setTimeout(() => {
+    toast.remove();
+    toastTimer = null;
+  }, 1e3);
+}
+function showConfirm(message) {
+  return new Promise((resolve) => {
+    const panel = _getPanelElement ? _getPanelElement() : null;
+    if (!panel) {
+      resolve(false);
+      return;
+    }
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:50;display:flex;align-items:center;justify-content:center;";
+    const box = document.createElement("div");
+    box.style.cssText = "background:var(--tr-bg,#252526);border:1px solid var(--tr-border,#454545);border-radius:4px;padding:16px 20px;max-width:300px;text-align:center;";
+    box.innerHTML = `
+      <div style="font-size:13px;color:var(--tr-text,#ccc);margin-bottom:12px;">${message}</div>
+      <div style="display:flex;gap:8px;justify-content:center;">
+        <button id="tr-confirm-ok" style="height:26px;padding:0 20px;font-size:12px;cursor:pointer;background:var(--tr-accent,#0e639c);border:none;color:var(--tr-accent-text,#fff);border-radius:2px;">\u786E\u8BA4</button>
+        <button id="tr-confirm-cancel" style="height:26px;padding:0 20px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">\u53D6\u6D88</button>
+      </div>
+    `;
+    overlay.appendChild(box);
+    panel.appendChild(overlay);
+    const cleanup = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+    box.querySelector("#tr-confirm-ok").addEventListener("click", () => cleanup(true));
+    box.querySelector("#tr-confirm-cancel").addEventListener("click", () => cleanup(false));
+  });
+}
+function showPrompt(title, defaultValue) {
+  return new Promise((resolve) => {
+    const panel = _getPanelElement ? _getPanelElement() : null;
+    if (!panel) {
+      resolve(null);
+      return;
+    }
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:50;display:flex;align-items:center;justify-content:center;";
+    const box = document.createElement("div");
+    box.style.cssText = "background:var(--tr-bg,#252526);border:1px solid var(--tr-border,#454545);border-radius:4px;padding:16px 20px;max-width:300px;";
+    box.innerHTML = `
+      <div style="font-size:13px;color:var(--tr-text,#ccc);margin-bottom:8px;">${title}</div>
+      <input id="tr-prompt-input" type="text" value="${escapeHtml(defaultValue || "")}" autocomplete="off" style="width:100%;height:28px;padding:0 8px;font-size:13px;border-radius:2px;background:var(--tr-input-bg,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);outline:none;box-sizing:border-box;margin-bottom:12px;">
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button id="tr-prompt-ok" style="height:26px;padding:0 20px;font-size:12px;cursor:pointer;background:var(--tr-accent,#0e639c);border:none;color:var(--tr-accent-text,#fff);border-radius:2px;">\u786E\u8BA4</button>
+        <button id="tr-prompt-cancel" style="height:26px;padding:0 20px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">\u53D6\u6D88</button>
+      </div>
+    `;
+    overlay.appendChild(box);
+    panel.appendChild(overlay);
+    const input = box.querySelector("#tr-prompt-input");
+    setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 50);
+    const cleanup = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+    box.querySelector("#tr-prompt-ok").addEventListener("click", () => cleanup(input.value.trim()));
+    box.querySelector("#tr-prompt-cancel").addEventListener("click", () => cleanup(null));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") cleanup(input.value.trim());
+      if (e.key === "Escape") cleanup(null);
+    });
+  });
+}
 var isPreviewMode = false;
 var overlayClickHandler = null;
+var _getPanelElement = null;
+var _historyPanel = null;
+var _customPanel = null;
+var _modalState = null;
 function renderReplaceBar(container, searchOptions3, getPanelElement2) {
+  _getPanelElement = getPanelElement2;
   const replaceRow = document.createElement("div");
   replaceRow.className = "tr-input-row tr-replace-row tr-replace-visible";
   replaceRow.id = "tr-replace-row";
@@ -1548,16 +1837,396 @@ function renderReplaceBar(container, searchOptions3, getPanelElement2) {
     <div class="tr-toolbar">
       <button class="tr-btn tr-replace-btn" id="${UIConstants.REPLACE_ONE_BTN_ID}" title="\u66FF\u6362\u5F53\u524D\u5339\u914D" disabled>${Icons.REPLACE_ONE}</button>
       <button class="tr-btn tr-replace-all-btn" id="${UIConstants.REPLACE_ALL_BTN_ID}" title="\u66FF\u6362\u5168\u90E8\u5339\u914D" disabled>${Icons.REPLACE_ALL}</button>
-      <button class="tr-btn tr-tool-btn" id="tr-preview-btn" title="\u9884\u89C8\u66FF\u6362" style="display: none;">\u{1F441}</button>
-      <button class="tr-btn tr-tool-btn" id="tr-apply-preview-btn" title="\u5E94\u7528\u9884\u89C8\u66FF\u6362" style="display: none;" disabled>\u2713</button>
+      <button class="tr-btn tr-tool-btn" id="tr-theme-btn" title="\u5207\u6362\u4E3B\u9898">\u{1F504}</button>
+      <button class="tr-btn tr-tool-btn" id="tr-history-btn" title="\u5386\u53F2/\u9884\u8BBE">\u{1F4CB}</button>
+      <button class="tr-btn tr-tool-btn" id="tr-preview-btn" title="\u9884\u89C8\u66FF\u6362">\u{1F441}</button>
+      <button class="tr-btn tr-tool-btn" id="tr-apply-preview-btn" title="\u5E94\u7528\u9884\u89C8\u66FF\u6362" disabled>\u2713</button>
     </div>
   `;
   container.appendChild(replaceRow);
+  const customPanel = document.createElement("div");
+  _customPanel = customPanel;
+  customPanel.id = "tr-custom-panel";
+  customPanel.className = "tr-input-row";
+  customPanel.style.cssText = "display:none;flex-direction:column;gap:6px;padding:6px 0;border-bottom:none;align-items:stretch;";
+  customPanel.innerHTML = `
+    <div style="display:flex;align-items:center;padding:4px 0;">
+      <span style="font-size:12px;font-weight:600;color:var(--tr-text,#ccc);">\u{1F3A8} \u81EA\u5B9A\u4E49\u4E3B\u9898</span>
+      <button id="tr-custom-close" style="margin-left:auto;background:transparent;border:none;cursor:pointer;font-size:16px;color:var(--tr-text,#ccc);padding:0 4px;" title="\u5173\u95ED">&times;</button>
+    </div>
+    <div style="display:flex;flex-direction:row;gap:10px;align-items:center;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:4px;">
+        <label style="font-size:11px;color:var(--tr-placeholder,#858585);">\u9762\u677F\u4E3B\u8272</label>
+        <input type="color" id="tr-color-panel" style="width:28px;height:22px;border:none;border-radius:2px;cursor:pointer;padding:0;background:transparent;">
+        <span id="tr-color-panel-hex" style="font-size:10px;color:var(--tr-placeholder,#858585);font-family:monospace;">#252526</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <label style="font-size:11px;color:var(--tr-placeholder,#858585);">\u641C\u7D22\u9AD8\u4EAE</label>
+        <input type="color" id="tr-color-search" style="width:28px;height:22px;border:none;border-radius:2px;cursor:pointer;padding:0;background:transparent;">
+        <span id="tr-color-search-hex" style="font-size:10px;color:var(--tr-placeholder,#858585);font-family:monospace;">#ffd700</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <label style="font-size:11px;color:var(--tr-placeholder,#858585);">\u9884\u89C8\u9AD8\u4EAE</label>
+        <input type="color" id="tr-color-preview" style="width:28px;height:22px;border:none;border-radius:2px;cursor:pointer;padding:0;background:transparent;">
+        <span id="tr-color-preview-hex" style="font-size:10px;color:var(--tr-placeholder,#858585);font-family:monospace;">#00ff00</span>
+      </div>
+    </div>
+    <div style="height:1px;background:var(--tr-border,#454545);margin:2px 0;"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-size:10px;font-weight:600;color:var(--tr-placeholder,#858585);text-transform:uppercase;">\u9884\u8BBE\u8272\u677F</span>
+      <div style="display:flex;gap:4px;">
+        <button id="tr-preset-save-color-btn" title="\u4FDD\u5B58\u5F53\u524D\u989C\u8272\u4E3A\u9884\u8BBE" style="height:24px;padding:0 8px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">\u{1F4BE}</button>
+        <button id="tr-preset-batch-del-color-btn" title="\u6279\u91CF\u5220\u9664\u9884\u8BBE" style="height:24px;padding:0 8px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-error,#f14c4c);border-radius:2px;">\u{1F5D1}</button>
+      </div>
+    </div>
+    <div id="tr-custom-preset-btns" style="display:flex;gap:4px;flex-wrap:wrap;">
+      <button class="tr-preset-btn" data-preset="monokai" style="height:24px;padding:0 8px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">Monokai</button>
+      <button class="tr-preset-btn" data-preset="nord" style="height:24px;padding:0 8px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">Nord</button>
+      <button class="tr-preset-btn" data-preset="solarized-dark" style="height:24px;padding:0 8px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">Solarized Dark</button>
+      <button class="tr-preset-btn" data-preset="solarized-light" style="height:24px;padding:0 8px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">Solarized Light</button>
+      <button class="tr-preset-btn" data-preset="one-dark" style="height:24px;padding:0 8px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">One Dark</button>
+    </div>
+  `;
+  container.appendChild(customPanel);
+  const historyPanel = document.createElement("div");
+  _historyPanel = historyPanel;
+  historyPanel.id = "tr-history-panel";
+  historyPanel.className = "tr-input-row";
+  historyPanel.style.cssText = "display:none;flex-direction:column;padding:0;border-bottom:none;align-items:stretch;";
+  historyPanel.innerHTML = `
+    <div style="display:flex;align-items:center;border-bottom:1px solid var(--tr-border,#454545);padding:0;">
+      <button class="tr-history-tab active" data-tab="history" style="flex:1;padding:6px 14px;font-size:12px;cursor:pointer;border:none;background:transparent;color:var(--tr-text,#ccc);border-bottom:2px solid var(--tr-accent,#0e639c);margin-bottom:-1px;text-align:center;">\u5386\u53F2\u8BB0\u5F55</button>
+      <button class="tr-history-tab" data-tab="presets" style="flex:1;padding:6px 14px;font-size:12px;cursor:pointer;border:none;background:transparent;color:var(--tr-placeholder,#858585);border-bottom:2px solid transparent;margin-bottom:-1px;text-align:center;">\u9884\u8BBE\u89C4\u5219</button>
+      <button id="tr-history-close" style="margin-left:auto;background:transparent;border:none;cursor:pointer;font-size:16px;color:var(--tr-text,#ccc);padding:0 4px;" title="\u5173\u95ED">&times;</button>
+    </div>
+    <div id="tr-history-list" style="padding:8px 0;word-break:break-all;overflow-wrap:break-word;"></div>
+    <div id="tr-presets-container" style="display:none;flex-direction:column;">
+      <div style="padding:8px 0;display:flex;gap:6px;align-items:center;">
+        <button id="tr-preset-search" style="display:none;">\u5360\u4F4D</button>
+        <input id="tr-preset-search-input" type="text" placeholder="\u641C\u7D22\u9884\u8BBE..." style="flex:1;min-width:0;height:24px;padding:0 8px;font-size:12px;border-radius:2px;background:var(--tr-input-bg,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);outline:none;">
+        <button id="tr-preset-add-btn" title="\u65B0\u589E\u9884\u8BBE" style="height:24px;min-width:24px;padding:0 6px;font-size:14px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">\u2795</button>
+        <button id="tr-preset-import-btn" title="\u5BFC\u5165\u9884\u8BBE" style="height:24px;min-width:24px;padding:0 6px;font-size:14px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">\u{1F4E5}</button>
+        <button id="tr-preset-export-btn" title="\u5BFC\u51FA\u5168\u90E8\u9884\u8BBE" style="height:24px;min-width:24px;padding:0 6px;font-size:14px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">\u{1F4E4}</button>
+        <button id="tr-preset-batch-del-btn" title="\u6279\u91CF\u5220\u9664" style="height:24px;min-width:24px;padding:0 6px;font-size:14px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-error,#f14c4c);border-radius:2px;">\u{1F5D1}</button>
+        <input type="file" id="tr-preset-file-input" accept=".json" style="display:none;">
+      </div>
+      <div id="tr-preset-list" style="padding:0 0 8px;word-break:break-all;overflow-wrap:break-word;"></div>
+    </div>
+  `;
+  container.appendChild(historyPanel);
+  const presetModal = document.createElement("div");
+  presetModal.id = "tr-preset-modal";
+  presetModal.style.cssText = "display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:var(--tr-bg,#252526);z-index:10;flex-direction:column;padding:12px;gap:8px;";
+  presetModal.innerHTML = `
+    <div style="display:flex;align-items:center;">
+      <span id="tr-modal-title" style="font-size:13px;font-weight:600;color:var(--tr-text,#ccc);">\u65B0\u589E\u9884\u8BBE</span>
+      <button id="tr-modal-close" style="margin-left:auto;background:transparent;border:none;cursor:pointer;font-size:18px;color:var(--tr-text,#ccc);padding:0 4px;" title="\u5173\u95ED">&times;</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px;">
+      <label style="font-size:11px;color:var(--tr-placeholder,#858585);">\u9884\u8BBE\u540D\u79F0</label>
+      <input id="tr-modal-name" type="text" placeholder="\u9884\u8BBE\u540D\u79F0" autocomplete="off" style="height:28px;padding:0 8px;font-size:13px;border-radius:2px;background:var(--tr-input-bg,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);outline:none;">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px;">
+      <label style="font-size:11px;color:var(--tr-placeholder,#858585);">\u641C\u7D22\u6587\u672C</label>
+      <textarea id="tr-modal-find" placeholder="\u641C\u7D22\u6587\u672C" rows="2" autocomplete="off" spellcheck="false" style="padding:4px 8px;font-size:13px;border-radius:2px;background:var(--tr-input-bg,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);outline:none;resize:vertical;font-family:inherit;line-height:1.4;min-height:28px;box-sizing:border-box;"></textarea>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px;">
+      <label style="font-size:11px;color:var(--tr-placeholder,#858585);">\u66FF\u6362\u6587\u672C\uFF08\u53EF\u4E3A\u7A7A\uFF09</label>
+      <textarea id="tr-modal-replace" placeholder="\u66FF\u6362\u6587\u672C\uFF08\u53EF\u4E3A\u7A7A\uFF09" rows="2" autocomplete="off" spellcheck="false" style="padding:4px 8px;font-size:13px;border-radius:2px;background:var(--tr-input-bg,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);outline:none;resize:vertical;font-family:inherit;line-height:1.4;min-height:28px;box-sizing:border-box;"></textarea>
+    </div>
+    <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:4px;">
+      <button id="tr-modal-submit" style="height:28px;padding:0 16px;font-size:12px;cursor:pointer;background:var(--tr-accent,#0e639c);border:none;color:var(--tr-accent-text,#fff);border-radius:2px;">\u63D0\u4EA4</button>
+      <button id="tr-modal-submit-next" style="height:28px;padding:0 12px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">\u63D0\u4EA4\u5E76\u7EE7\u7EED</button>
+    </div>
+  `;
+  container.appendChild(presetModal);
+  const modalTitle = presetModal.querySelector("#tr-modal-title");
+  const modalName = presetModal.querySelector("#tr-modal-name");
+  const modalFind = presetModal.querySelector("#tr-modal-find");
+  const modalReplace = presetModal.querySelector("#tr-modal-replace");
+  _modalState = {
+    modal: presetModal,
+    modalTitle,
+    modalName,
+    modalFind,
+    modalReplace,
+    mode: "add",
+    editingPresetId: null
+  };
+  modalFind.addEventListener("input", () => {
+    const text = modalFind.value.trim();
+    modalName.placeholder = text || "\u9884\u8BBE\u540D\u79F0\uFF08\u4E3A\u7A7A\u53D6\u641C\u7D22\u6587\u672C\uFF09";
+  });
+  presetModal.querySelector("#tr-modal-close").addEventListener("click", closeModal);
+  presetModal.querySelector("#tr-modal-submit").addEventListener("click", () => submitModal(false));
+  presetModal.querySelector("#tr-modal-submit-next").addEventListener("click", () => submitModal(true));
+  historyPanel.querySelectorAll(".tr-history-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const tabName = tab.dataset.tab;
+      historyPanel.querySelectorAll(".tr-history-tab").forEach((t) => {
+        t.style.color = "var(--tr-placeholder,#858585)";
+        t.style.borderBottomColor = "transparent";
+      });
+      tab.style.color = "var(--tr-text,#ccc)";
+      tab.style.borderBottomColor = "var(--tr-accent,#0e639c)";
+      const historyList = historyPanel.querySelector("#tr-history-list");
+      const presetsContainer = historyPanel.querySelector("#tr-presets-container");
+      if (historyList) historyList.style.display = tabName === "history" ? "" : "none";
+      if (presetsContainer) presetsContainer.style.display = tabName === "presets" ? "flex" : "none";
+      if (tabName === "history") loadHistoryItemsForPanel(historyPanel);
+      if (tabName === "presets") {
+        loadPresetItemsForPanel(historyPanel);
+        bindPresetEventsForPanel(historyPanel);
+      }
+    });
+  });
+  const THEME_MODES = ["auto", "light", "dark", "custom"];
+  const THEME_ICONS = { auto: "\u{1F504}", light: "\u2600\uFE0F", dark: "\u{1F319}", custom: "\u{1F3A8}" };
+  let currentThemeMode = "auto";
+  const themeBtn = replaceRow.querySelector("#tr-theme-btn");
+  function openCustomPanel() {
+    customPanel.style.display = "flex";
+    loadAndApplyCustomColors();
+    renderAllPresetsInCustomPanel(customPanel);
+  }
+  function closeCustomPanel() {
+    customPanel.style.display = "none";
+  }
+  async function loadAndApplyCustomColors() {
+    try {
+      const config = await getTheme();
+      const host = document.getElementById("text-replacer-host");
+      if (config.custom && host) {
+        const pc = config.custom.panelBg || "#252526";
+        const sc = config.custom.searchHighlight || "#ffd700";
+        const pr = config.custom.previewHighlight || "#00ff00";
+        applyCustomColors(pc, sc, pr, host);
+        const pi = customPanel.querySelector("#tr-color-panel");
+        const si = customPanel.querySelector("#tr-color-search");
+        const vi = customPanel.querySelector("#tr-color-preview");
+        if (pi) {
+          pi.value = pc;
+          const hexEl = customPanel.querySelector("#tr-color-panel-hex");
+          if (hexEl) hexEl.textContent = pc;
+        }
+        if (si) {
+          si.value = sc;
+          const hexEl = customPanel.querySelector("#tr-color-search-hex");
+          if (hexEl) hexEl.textContent = sc;
+        }
+        if (vi) {
+          vi.value = pr;
+          const hexEl = customPanel.querySelector("#tr-color-preview-hex");
+          if (hexEl) hexEl.textContent = pr;
+        }
+      }
+    } catch (_) {
+    }
+  }
+  class ThemeCycler {
+    constructor() {
+      this.modes = THEME_MODES;
+      this.currentIdx = 0;
+      this.load();
+    }
+    async load() {
+      const config = await getTheme();
+      this.currentIdx = this.modes.indexOf(config.mode || "auto");
+      if (this.currentIdx < 0) this.currentIdx = 0;
+      currentThemeMode = this.modes[this.currentIdx];
+      const host = document.getElementById("text-replacer-host");
+      if (config.custom) {
+        await loadAndApplyCustomColors();
+        if (host) {
+          applyCustomColors(config.custom.panelBg || "#252526", config.custom.searchHighlight || "#ffd700", config.custom.previewHighlight || "#00ff00", host);
+        }
+      } else if (host) {
+        applyTheme(currentThemeMode, host);
+      }
+      this.updateUI();
+    }
+    next() {
+      const prevMode = this.modes[this.currentIdx];
+      if (prevMode === "custom" && customPanel.style.display !== "flex") {
+        console.log("[Theme] custom was hidden \u2192 re-showing panel");
+        loadAndApplyCustomColors();
+        openCustomPanel();
+        this.updateUI();
+        return;
+      }
+      this.currentIdx = (this.currentIdx + 1) % this.modes.length;
+      const mode = this.modes[this.currentIdx];
+      console.log("[Theme] next \u2192", mode, "| customPanel visible:", customPanel.style.display === "flex");
+      if (mode === "custom") {
+        if (customPanel.style.display === "flex") {
+          console.log("[Theme] custom panel visible \u2192 closing + skip to auto");
+          closeCustomPanel();
+          this.currentIdx = (this.currentIdx + 1) % this.modes.length;
+          const nextMode = this.modes[this.currentIdx];
+          currentThemeMode = nextMode;
+          const host = document.getElementById("text-replacer-host");
+          applyTheme(nextMode, host);
+        } else {
+          console.log("[Theme] custom panel hidden \u2192 showing");
+          currentThemeMode = mode;
+          loadAndApplyCustomColors();
+          openCustomPanel();
+        }
+      } else {
+        currentThemeMode = mode;
+        const host = document.getElementById("text-replacer-host");
+        applyTheme(mode, host);
+        closeCustomPanel();
+      }
+      this.updateUI();
+    }
+    updateUI() {
+      const mode = this.modes[this.currentIdx];
+      themeBtn.textContent = THEME_ICONS[mode];
+      themeBtn.title = `\u4E3B\u9898: ${mode}`;
+    }
+  }
+  const themeCycler = new ThemeCycler();
+  themeBtn.addEventListener("click", () => themeCycler.next());
+  const closeBtn = customPanel.querySelector("#tr-custom-close");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => {
+      closeCustomPanel();
+    });
+  }
+  ["tr-color-panel", "tr-color-search", "tr-color-preview"].forEach((id) => {
+    const el = customPanel.querySelector(`#${id}`);
+    const hexEl = customPanel.querySelector(`#${id}-hex`);
+    if (el) {
+      el.addEventListener("input", () => {
+        var _a, _b, _c;
+        const host = document.getElementById("text-replacer-host");
+        if (!host) return;
+        const panelColor = ((_a = customPanel.querySelector("#tr-color-panel")) == null ? void 0 : _a.value) || "#252526";
+        const searchColor = ((_b = customPanel.querySelector("#tr-color-search")) == null ? void 0 : _b.value) || "#ffd700";
+        const previewColor = ((_c = customPanel.querySelector("#tr-color-preview")) == null ? void 0 : _c.value) || "#00ff00";
+        applyCustomColors(panelColor, searchColor, previewColor, host);
+        saveTheme({ mode: "custom", custom: { panelBg: panelColor, searchHighlight: searchColor, previewHighlight: previewColor } });
+        if (hexEl) hexEl.textContent = el.value;
+      });
+    }
+  });
+  customPanel.querySelectorAll(".tr-preset-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const presetName = btn.dataset.preset;
+      const preset = { monokai: { panelBg: "#272822", searchHighlight: "#a6e22e", previewHighlight: "#f92672" }, nord: { panelBg: "#2e3440", searchHighlight: "#88c0d0", previewHighlight: "#a3be8c" }, "solarized-dark": { panelBg: "#002b36", searchHighlight: "#268bd2", previewHighlight: "#b58900" }, "solarized-light": { panelBg: "#fdf6e3", searchHighlight: "#268bd2", previewHighlight: "#cb4b16" }, "one-dark": { panelBg: "#282c34", searchHighlight: "#e5c07b", previewHighlight: "#c678dd" } }[presetName];
+      if (!preset) return;
+      const host = document.getElementById("text-replacer-host");
+      if (!host) return;
+      const panelPicker = customPanel.querySelector("#tr-color-panel");
+      const searchPicker = customPanel.querySelector("#tr-color-search");
+      const previewPicker = customPanel.querySelector("#tr-color-preview");
+      if (panelPicker) panelPicker.value = preset.panelBg;
+      if (searchPicker) searchPicker.value = preset.searchHighlight;
+      if (previewPicker) previewPicker.value = preset.previewHighlight;
+      applyCustomColors(preset.panelBg, preset.searchHighlight, preset.previewHighlight, host);
+      saveTheme({ mode: "custom", custom: { panelBg: preset.panelBg, searchHighlight: preset.searchHighlight, previewHighlight: preset.previewHighlight } });
+      const hexPanel = customPanel.querySelector("#tr-color-panel-hex");
+      const hexSearch = customPanel.querySelector("#tr-color-search-hex");
+      const hexPreview = customPanel.querySelector("#tr-color-preview-hex");
+      if (hexPanel) hexPanel.textContent = preset.panelBg;
+      if (hexSearch) hexSearch.textContent = preset.searchHighlight;
+      if (hexPreview) hexPreview.textContent = preset.previewHighlight;
+    });
+  });
+  const saveColorPresetBtn = customPanel.querySelector("#tr-preset-save-color-btn");
+  if (saveColorPresetBtn) {
+    saveColorPresetBtn.addEventListener("click", async () => {
+      var _a, _b, _c;
+      const pc = ((_a = customPanel.querySelector("#tr-color-panel")) == null ? void 0 : _a.value) || "#252526";
+      const sc = ((_b = customPanel.querySelector("#tr-color-search")) == null ? void 0 : _b.value) || "#ffd700";
+      const pr = ((_c = customPanel.querySelector("#tr-color-preview")) == null ? void 0 : _c.value) || "#00ff00";
+      const name = await showPrompt("\u9884\u8BBE\u540D\u79F0:", `\u81EA\u5B9A\u4E49 ${pc}`);
+      if (name) {
+        try {
+          await savePreset(name, `__color_preset__${JSON.stringify({ panelBg: pc, searchHighlight: sc, previewHighlight: pr })}`, "", {});
+          showToast(`${name} \u4FDD\u5B58\u6210\u529F`);
+          await renderAllPresetsInCustomPanel(customPanel);
+          if (_historyPanel) {
+            const presetsContainer = _historyPanel.querySelector("#tr-presets-container");
+            if (presetsContainer && presetsContainer.style.display !== "none") {
+              loadPresetItemsForPanel(_historyPanel);
+            }
+          }
+        } catch (err) {
+          showToast("\u4FDD\u5B58\u5931\u8D25: " + err.message);
+        }
+      }
+    });
+  }
+  const batchDelColorBtn = customPanel.querySelector("#tr-preset-batch-del-color-btn");
+  if (batchDelColorBtn) {
+    let colorBatchMode = false;
+    let colorSelectedIds = /* @__PURE__ */ new Set();
+    const exitColorBatchMode = async () => {
+      colorBatchMode = false;
+      colorSelectedIds.clear();
+      batchDelColorBtn.textContent = "\u{1F5D1}";
+      batchDelColorBtn.title = "\u6279\u91CF\u5220\u9664\u9884\u8BBE";
+      await renderAllPresetsInCustomPanel(customPanel);
+    };
+    batchDelColorBtn.addEventListener("click", async () => {
+      if (!colorBatchMode) {
+        colorBatchMode = true;
+        colorSelectedIds.clear();
+        batchDelColorBtn.textContent = "\u2713";
+        batchDelColorBtn.title = "\u786E\u8BA4\u5220\u9664";
+        await loadColorPresetsForBatch(customPanel, true, colorSelectedIds);
+      } else {
+        if (colorSelectedIds.size === 0) {
+          await exitColorBatchMode();
+          return;
+        }
+        const ok = await showConfirm(`\u786E\u8BA4\u5220\u9664 ${colorSelectedIds.size} \u6761\u989C\u8272\u9884\u8BBE\uFF1F`);
+        if (!ok) {
+          await exitColorBatchMode();
+          return;
+        }
+        for (const id of colorSelectedIds) {
+          try {
+            await deletePreset(id);
+          } catch (_) {
+          }
+        }
+        await exitColorBatchMode();
+        if (_historyPanel) {
+          const presetsContainer = _historyPanel.querySelector("#tr-presets-container");
+          if (presetsContainer && presetsContainer.style.display !== "none") {
+            loadPresetItemsForPanel(_historyPanel);
+          }
+        }
+        showToast("\u5220\u9664\u6210\u529F");
+      }
+    });
+  }
+  const historyBtn = replaceRow.querySelector("#tr-history-btn");
+  historyBtn.addEventListener("click", () => {
+    if (historyPanel.style.display === "flex") {
+      historyPanel.style.display = "none";
+    } else {
+      historyPanel.style.display = "flex";
+      const historyTab = historyPanel.querySelector('[data-tab="history"]');
+      if (historyTab) historyTab.click();
+    }
+  });
+  const historyCloseBtn = historyPanel.querySelector("#tr-history-close");
+  if (historyCloseBtn) {
+    historyCloseBtn.addEventListener("click", () => {
+      historyPanel.style.display = "none";
+    });
+  }
   const replaceOneBtn = replaceRow.querySelector(`#${UIConstants.REPLACE_ONE_BTN_ID}`);
   const replaceAllBtn = replaceRow.querySelector(`#${UIConstants.REPLACE_ALL_BTN_ID}`);
   const replaceInput = replaceRow.querySelector(`#${UIConstants.REPLACE_INPUT_ID}`);
   const previewBtn = replaceRow.querySelector("#tr-preview-btn");
   const applyPreviewBtn = replaceRow.querySelector("#tr-apply-preview-btn");
+  previewBtn.style.display = "none";
+  applyPreviewBtn.style.display = "none";
   if (replaceInput) {
     replaceInput.style.cssText = "width:100%;padding:4px 8px;font-size:13px;color:var(--tr-input-text,#cccccc);background:var(--tr-input-bg,#3c3c3c);border:1px solid var(--tr-input-bg,#3c3c3c);border-radius:2px;outline:none;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.4;min-height:22px;";
   }
@@ -1844,729 +2513,427 @@ function showStatus(row, result) {
     statusEl.classList.remove("tr-show");
   }, 2e3);
 }
-
-// src/content/ui/history-menu.js
-var presetSearchTerm = "";
-var PRESET_MAX = 100;
-function getPanelEl() {
-  var _a;
-  const host = document.getElementById("text-replacer-host");
-  return ((_a = host == null ? void 0 : host.shadowRoot) == null ? void 0 : _a.querySelector(".tr-panel")) || null;
-}
-function getMenuEl() {
-  var _a;
-  return ((_a = getPanelEl()) == null ? void 0 : _a.querySelector("#tr-more-menu")) || null;
-}
-function getShadowElement(selector) {
-  const menu = getMenuEl();
-  if (menu) {
-    const el = menu.querySelector(selector);
-    if (el) return el;
-  }
-  const panel = getPanelEl();
-  return (panel == null ? void 0 : panel.querySelector(selector)) || null;
-}
-function bindPresetEvents(menuElement) {
-  if (!menuElement) {
-    console.warn("[history-menu] menuElement \u4E3A\u7A7A\uFF0C\u8DF3\u8FC7\u4E8B\u4EF6\u7ED1\u5B9A");
-    return;
-  }
-  const saveBtn = menuElement.querySelector("#tr-preset-save-btn");
-  const exportBtn = menuElement.querySelector("#tr-preset-export-btn");
-  const importBtn = menuElement.querySelector("#tr-preset-import-btn");
-  if (!saveBtn || !exportBtn || !importBtn) {
-    console.warn("[history-menu] \u90E8\u5206\u9884\u8BBE\u6309\u94AE\u672A\u627E\u5230\uFF0C\u8DF3\u8FC7\u4E8B\u4EF6\u7ED1\u5B9A", {
-      saveBtn: !!saveBtn,
-      exportBtn: !!exportBtn,
-      importBtn: !!importBtn
-    });
-    return;
-  }
-  saveBtn.addEventListener("click", handleSaveCurrentAsPreset);
-  exportBtn.addEventListener("click", handleExportPresets);
-  importBtn.addEventListener("click", () => {
-    const fileInput2 = menuElement.querySelector("#tr-preset-file-input");
-    if (fileInput2) fileInput2.click();
-  });
-  const fileInput = menuElement.querySelector("#tr-preset-file-input");
-  if (fileInput) {
-    fileInput.addEventListener("change", handleImportPresets);
-  }
-  const searchInput = menuElement.querySelector("#tr-preset-search");
-  if (searchInput) {
-    searchInput.addEventListener("input", (e) => {
-      presetSearchTerm = (e.target.value || "").toLowerCase();
-      loadPresetItems(menuElement);
-    });
-  }
-}
-async function loadHistoryItems(menuElement) {
-  const listEl = menuElement ? menuElement.querySelector("#tr-history-list") : getShadowElement("#tr-history-list");
-  if (!listEl) return;
+async function loadColorPresetsForBatch(customPanel, batchMode, selectedIds) {
+  const presetBtnsContainer = customPanel.querySelector("#tr-custom-preset-btns");
+  if (!presetBtnsContainer) return;
   try {
-    const history = await getHistory();
-    listEl.innerHTML = "";
-    if (history.length === 0) {
-      listEl.innerHTML = '<div style="padding:4px 12px 8px;font-size:11px;color:var(--tr-placeholder,#858585);">\u6682\u65E0\u5386\u53F2\u8BB0\u5F55</div>';
-      return;
-    }
-    for (const entry of history) {
-      const item = createHistoryItem(entry);
-      listEl.appendChild(item);
-    }
-  } catch {
-  }
-}
-async function loadPresetItems(menuElement) {
-  const listEl = menuElement ? menuElement.querySelector("#tr-preset-list") : getShadowElement("#tr-preset-list");
-  if (!listEl) return;
-  try {
-    let presets2 = await getPresets();
-    if (presetSearchTerm) {
-      presets2 = presets2.filter(
-        (p) => (p.name || "").toLowerCase().includes(presetSearchTerm)
-      );
-    }
-    listEl.innerHTML = "";
-    if (presets2.length === 0) {
-      const msg = presetSearchTerm ? "\u65E0\u5339\u914D\u7684\u9884\u8BBE" : "\u6682\u65E0\u9884\u8BBE\u89C4\u5219";
-      listEl.innerHTML = `<div style="padding:4px 12px 8px;font-size:11px;color:var(--tr-placeholder,#858585);">${msg}</div>`;
-      return;
-    }
-    for (const preset of presets2) {
-      const item = createPresetItem(preset);
-      listEl.appendChild(item);
-    }
-  } catch {
-  }
-}
-async function handleSaveCurrentAsPreset() {
-  try {
-    const presets2 = await getPresets();
-    if (presets2.length >= PRESET_MAX) {
-      alert(`\u9884\u8BBE\u5DF2\u6EE1\uFF08\u4E0A\u9650${PRESET_MAX}\u6761\uFF09\uFF0C\u8BF7\u5148\u5220\u9664\u4E0D\u9700\u8981\u7684\u9884\u8BBE`);
-      return;
-    }
-    const findInput = getShadowElement(`#${UIConstants.FIND_INPUT_ID}`);
-    const replaceInput = getShadowElement(`#${UIConstants.REPLACE_INPUT_ID}`);
-    const findText = findInput ? findInput.value : "";
-    const replaceText = replaceInput ? replaceInput.value : "";
-    if (!findText.trim()) {
-      alert("\u67E5\u627E\u5185\u5BB9\u4E0D\u80FD\u4E3A\u7A7A");
-      return;
-    }
-    const name = prompt("\u8BF7\u8F93\u5165\u9884\u8BBE\u540D\u79F0\uFF1A", "");
-    if (name === null) return;
-    if (!name.trim()) {
-      alert("\u9884\u8BBE\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A");
-      return;
-    }
-    await savePreset(name.trim(), findText, replaceText, {});
-    await loadPresetItems(getMenuEl());
-  } catch (err) {
-    alert("\u4FDD\u5B58\u9884\u8BBE\u5931\u8D25\uFF1A" + (err.message || "\u672A\u77E5\u9519\u8BEF"));
-  }
-}
-async function handleDeletePreset(id, name) {
-  if (!confirm(`\u786E\u5B9A\u8981\u5220\u9664\u9884\u8BBE\u300C${name}\u300D\u5417\uFF1F`)) return;
-  try {
-    await deletePreset(id);
-    await loadPresetItems(getMenuEl());
-  } catch (err) {
-    alert("\u5220\u9664\u9884\u8BBE\u5931\u8D25\uFF1A" + (err.message || "\u672A\u77E5\u9519\u8BEF"));
-  }
-}
-async function handleExportPresets() {
-  try {
-    const json = await exportPresets();
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const now = /* @__PURE__ */ new Date();
-    const dateStr = now.getFullYear() + String(now.getMonth() + 1).padStart(2, "0") + String(now.getDate()).padStart(2, "0");
-    const filename = `text-replacer-presets-${dateStr}.json`;
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  } catch (err) {
-    alert("\u5BFC\u51FA\u5931\u8D25\uFF1A" + (err.message || "\u672A\u77E5\u9519\u8BEF"));
-  }
-}
-async function handleImportPresets(event) {
-  const fileInput = event.target;
-  const file = fileInput.files[0];
-  if (!file) return;
-  try {
-    const text = await readFileAsText(file);
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      alert("\u5BFC\u5165\u5931\u8D25\uFF1A\u65E0\u6548\u7684 JSON \u683C\u5F0F");
-      return;
-    }
-    if (!Array.isArray(data)) {
-      alert("\u5BFC\u5165\u5931\u8D25\uFF1A\u6570\u636E\u683C\u5F0F\u9519\u8BEF\uFF0C\u5E94\u4E3A\u6570\u7EC4");
-      return;
-    }
-    for (let i = 0; i < data.length; i++) {
-      const item = data[i];
-      if (!item.name || item.findText === void 0 || item.replaceText === void 0) {
-        alert(`\u5BFC\u5165\u5931\u8D25\uFF1A\u7B2C ${i + 1} \u9879\u7F3A\u5C11\u5FC5\u9700\u5B57\u6BB5\uFF08name/findText/replaceText\uFF09`);
+    const allPresets = await getPresets();
+    const colorPresets = allPresets.filter((p) => p.findText && p.findText.startsWith("__color_preset__"));
+    if (batchMode) {
+      presetBtnsContainer.innerHTML = "";
+      presetBtnsContainer.style.cssText = "display:flex;flex-direction:column;gap:4px;max-height:140px;overflow-y:auto;";
+      if (colorPresets.length === 0) {
+        presetBtnsContainer.innerHTML = '<div style="font-size:11px;color:var(--tr-placeholder,#858585);padding:4px 0;">\u6682\u65E0\u989C\u8272\u9884\u8BBE</div>';
         return;
       }
+      for (const preset of colorPresets) {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:6px;padding:2px 0;font-size:11px;color:var(--tr-text,#ccc);";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.style.cssText = "flex-shrink:0;";
+        cb.checked = selectedIds.has(preset.id);
+        cb.addEventListener("change", () => {
+          if (cb.checked) selectedIds.add(preset.id);
+          else selectedIds.delete(preset.id);
+        });
+        row.appendChild(cb);
+        try {
+          const colorData = JSON.parse(preset.findText.replace("__color_preset__", ""));
+          const swatch = document.createElement("span");
+          swatch.style.cssText = `display:inline-block;width:14px;height:14px;border-radius:2px;background:${colorData.panelBg || "#252526"};border:1px solid var(--tr-border,#454545);flex-shrink:0;`;
+          row.appendChild(swatch);
+        } catch (_) {
+        }
+        const nameSpan = document.createElement("span");
+        nameSpan.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        nameSpan.textContent = preset.name;
+        row.appendChild(nameSpan);
+        presetBtnsContainer.appendChild(row);
+      }
+    } else {
+      await renderAllPresetsInCustomPanel(customPanel);
     }
-    const currentPresets = await getPresets();
-    const currentNames = new Set(currentPresets.map((p) => p.name + "|||" + p.findText));
-    let newCount = currentPresets.length;
-    for (const item of data) {
-      const key = item.name + "|||" + item.findText;
-      if (!currentNames.has(key)) {
-        newCount++;
-        currentNames.add(key);
+  } catch (_) {
+  }
+}
+function reBindPresetButtons(customPanel) {
+  customPanel.querySelectorAll(".tr-preset-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const presetName = btn.dataset.preset;
+      const preset = { monokai: { panelBg: "#272822", searchHighlight: "#a6e22e", previewHighlight: "#f92672" }, nord: { panelBg: "#2e3440", searchHighlight: "#88c0d0", previewHighlight: "#a3be8c" }, "solarized-dark": { panelBg: "#002b36", searchHighlight: "#268bd2", previewHighlight: "#b58900" }, "solarized-light": { panelBg: "#fdf6e3", searchHighlight: "#268bd2", previewHighlight: "#cb4b16" }, "one-dark": { panelBg: "#282c34", searchHighlight: "#e5c07b", previewHighlight: "#c678dd" } }[presetName];
+      if (!preset) return;
+      const host = document.getElementById("text-replacer-host");
+      if (!host) return;
+      const panelPicker = customPanel.querySelector("#tr-color-panel");
+      const searchPicker = customPanel.querySelector("#tr-color-search");
+      const previewPicker = customPanel.querySelector("#tr-color-preview");
+      if (panelPicker) panelPicker.value = preset.panelBg;
+      if (searchPicker) searchPicker.value = preset.searchHighlight;
+      if (previewPicker) previewPicker.value = preset.previewHighlight;
+      applyCustomColors(preset.panelBg, preset.searchHighlight, preset.previewHighlight, host);
+      saveTheme({ mode: "custom", custom: { panelBg: preset.panelBg, searchHighlight: preset.searchHighlight, previewHighlight: preset.previewHighlight } });
+      const hexPanel = customPanel.querySelector("#tr-color-panel-hex");
+      const hexSearch = customPanel.querySelector("#tr-color-search-hex");
+      const hexPreview = customPanel.querySelector("#tr-color-preview-hex");
+      if (hexPanel) hexPanel.textContent = preset.panelBg;
+      if (hexSearch) hexSearch.textContent = preset.searchHighlight;
+      if (hexPreview) hexPreview.textContent = preset.previewHighlight;
+    });
+  });
+}
+function bindUserColorPresetButton(btn, panelBg, searchHighlight, previewHighlight, customPanel) {
+  btn.addEventListener("click", () => {
+    const host = document.getElementById("text-replacer-host");
+    if (!host) return;
+    const panelPicker = customPanel.querySelector("#tr-color-panel");
+    const searchPicker = customPanel.querySelector("#tr-color-search");
+    const previewPicker = customPanel.querySelector("#tr-color-preview");
+    if (panelPicker) panelPicker.value = panelBg;
+    if (searchPicker) searchPicker.value = searchHighlight;
+    if (previewPicker) previewPicker.value = previewHighlight;
+    applyCustomColors(panelBg, searchHighlight, previewHighlight, host);
+    saveTheme({ mode: "custom", custom: { panelBg, searchHighlight, previewHighlight } });
+    const hp = customPanel.querySelector("#tr-color-panel-hex");
+    const hs = customPanel.querySelector("#tr-color-search-hex");
+    const hv = customPanel.querySelector("#tr-color-preview-hex");
+    if (hp) hp.textContent = panelBg;
+    if (hs) hs.textContent = searchHighlight;
+    if (hv) hv.textContent = previewHighlight;
+  });
+}
+async function renderAllPresetsInCustomPanel(customPanel) {
+  const presetBtnsContainer = customPanel.querySelector("#tr-custom-preset-btns");
+  if (!presetBtnsContainer) return;
+  presetBtnsContainer.style.cssText = "display:flex;gap:4px;flex-wrap:wrap;";
+  let html = `
+    <button class="tr-preset-btn" data-preset="monokai" style="height:24px;padding:0 8px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">Monokai</button>
+    <button class="tr-preset-btn" data-preset="nord" style="height:24px;padding:0 8px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">Nord</button>
+    <button class="tr-preset-btn" data-preset="solarized-dark" style="height:24px;padding:0 8px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">Solarized Dark</button>
+    <button class="tr-preset-btn" data-preset="solarized-light" style="height:24px;padding:0 8px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">Solarized Light</button>
+    <button class="tr-preset-btn" data-preset="one-dark" style="height:24px;padding:0 8px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">One Dark</button>
+  `;
+  try {
+    const allPresets = await getPresets();
+    const colorPresets = allPresets.filter((p) => p.findText && p.findText.startsWith("__color_preset__"));
+    for (const cp of colorPresets) {
+      try {
+        JSON.parse(cp.findText.replace("__color_preset__", ""));
+        html += `<button class="tr-preset-btn tr-user-preset" data-user-preset-id="${escapeHtml(cp.id)}" style="height:24px;padding:0 8px;font-size:12px;cursor:pointer;background:var(--tr-btn-hover,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#ccc);border-radius:2px;">\u{1F58C} ${escapeHtml(cp.name)}</button>`;
+      } catch (_) {
       }
     }
-    if (newCount > PRESET_MAX) {
-      alert(`\u5BFC\u5165\u5931\u8D25\uFF1A\u5BFC\u5165\u540E\u5C06\u8D85\u8FC7\u9884\u8BBE\u4E0A\u9650\uFF08${PRESET_MAX}\u6761\uFF09\uFF0C\u8BF7\u5148\u5220\u9664\u90E8\u5206\u9884\u8BBE`);
-      return;
-    }
-    await importPresets(text);
-    presetSearchTerm = "";
-    const menu = getMenuEl();
-    const searchInput = menu ? menu.querySelector("#tr-preset-search") : getShadowElement("#tr-preset-search");
-    if (searchInput) searchInput.value = "";
-    await loadPresetItems(menu);
-    alert("\u5BFC\u5165\u6210\u529F\uFF01");
-  } catch (err) {
-    alert("\u5BFC\u5165\u5931\u8D25\uFF1A" + (err.message || "\u672A\u77E5\u9519\u8BEF"));
-  } finally {
-    fileInput.value = "";
+  } catch (_) {
   }
+  presetBtnsContainer.innerHTML = html;
+  reBindPresetButtons(customPanel);
+  bindUserColorPresetEvents(customPanel);
 }
-function readFileAsText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error("\u6587\u4EF6\u8BFB\u53D6\u5931\u8D25"));
-    reader.readAsText(file);
+function bindUserColorPresetEvents(customPanel) {
+  customPanel.querySelectorAll(".tr-user-preset").forEach((btn) => {
+    const presetId = btn.dataset.userPresetId;
+    if (!presetId) return;
+    getPresets().then((allPresets) => {
+      const found = allPresets.find((p) => p.id === presetId);
+      if (!found || !found.findText) return;
+      try {
+        const cd = JSON.parse(found.findText.replace("__color_preset__", ""));
+        bindUserColorPresetButton(btn, cd.panelBg, cd.searchHighlight, cd.previewHighlight, customPanel);
+      } catch (_) {
+      }
+    });
   });
-}
-function createHistoryItem(entry) {
-  const item = document.createElement("div");
-  item.className = "tr-menu-item";
-  item.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:4px 12px;font-size:12px;cursor:pointer;color:var(--tr-text,#cccccc);";
-  const textSpan = document.createElement("span");
-  textSpan.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
-  textSpan.textContent = `${entry.findText || "(\u7A7A)"} \u2192 ${entry.replaceText || "(\u4EC5\u641C\u7D22)"}`;
-  textSpan.title = `\u67E5\u627E: ${entry.findText || ""}
-\u66FF\u6362: ${entry.replaceText || ""}`;
-  textSpan.addEventListener("click", () => {
-    fillInputs(entry.findText, entry.replaceText);
-    const menu = getMenuEl();
-    if (menu) menu.style.display = "none";
-  });
-  textSpan.addEventListener("mouseenter", () => {
-    item.style.background = "var(--tr-btn-hover,#3c3c3c)";
-  });
-  textSpan.addEventListener("mouseleave", () => {
-    item.style.background = "";
-  });
-  const favBtn = document.createElement("button");
-  favBtn.textContent = "\u2B50";
-  favBtn.title = "\u4FDD\u5B58\u4E3A\u9884\u8BBE";
-  favBtn.style.cssText = "background:transparent;border:none;cursor:pointer;font-size:14px;padding:0 4px;color:var(--tr-text,#cccccc);flex-shrink:0;";
-  favBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const name = entry.findText ? entry.findText.substring(0, 30) : "\u672A\u547D\u540D";
-    const presetName = prompt("\u9884\u8BBE\u540D\u79F0:", name);
-    if (presetName) {
-      savePreset(presetName, entry.findText || "", entry.replaceText || "", entry.options || {}).then(() => {
-        loadPresetItems(getMenuEl());
-      }).catch((err) => {
-        alert("\u4FDD\u5B58\u5931\u8D25: " + err.message);
-      });
-    }
-  });
-  item.appendChild(textSpan);
-  item.appendChild(favBtn);
-  return item;
-}
-function createPresetItem(preset) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "tr-preset-item";
-  wrapper.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:2px 12px;font-size:12px;color:var(--tr-text,#cccccc);";
-  const nameEl = document.createElement("span");
-  nameEl.textContent = truncate(preset.name, 28);
-  nameEl.title = `\u67E5\u627E: ${preset.findText}
-\u66FF\u6362: ${preset.replaceText}`;
-  nameEl.style.cssText = "flex:1;min-width:0;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
-  nameEl.addEventListener("mouseenter", () => {
-    wrapper.style.background = "var(--tr-btn-hover,#3c3c3c)";
-  });
-  nameEl.addEventListener("mouseleave", () => {
-    wrapper.style.background = "";
-  });
-  nameEl.addEventListener("click", (e) => {
-    e.stopPropagation();
-    fillInputs(preset.findText, preset.replaceText);
-    const menu = getMenuEl();
-    if (menu) menu.style.display = "none";
-  });
-  const delBtn = document.createElement("button");
-  delBtn.textContent = "\u2715";
-  delBtn.title = "\u5220\u9664\u9884\u8BBE";
-  delBtn.style.cssText = "background:none;border:none;color:var(--tr-placeholder,#858585);cursor:pointer;font-size:12px;padding:0 2px;line-height:1;flex-shrink:0;margin-left:4px;";
-  delBtn.addEventListener("mouseenter", () => {
-    delBtn.style.color = "#f44747";
-  });
-  delBtn.addEventListener("mouseleave", () => {
-    delBtn.style.color = "var(--tr-placeholder,#858585)";
-  });
-  delBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    handleDeletePreset(preset.id, preset.name);
-  });
-  wrapper.appendChild(nameEl);
-  wrapper.appendChild(delBtn);
-  return wrapper;
-}
-function fillInputs(findText, replaceText) {
-  const findInput = getShadowElement(`#${UIConstants.FIND_INPUT_ID}`);
-  const replaceInput = getShadowElement(`#${UIConstants.REPLACE_INPUT_ID}`);
-  if (findInput) {
-    findInput.value = findText;
-    findInput.dispatchEvent(new Event("input", { bubbles: true }));
-  }
-  if (replaceInput) {
-    replaceInput.value = replaceText;
-  }
-  if (replaceText) {
-    const panel = getPanelEl();
-    const replaceRow = panel ? panel.querySelector("#tr-replace-row") : null;
-    if (replaceRow) {
-      replaceRow.classList.add(UIConstants.REPLACE_VISIBLE_CLASS);
-    }
-  }
 }
 function truncate(text, maxLen) {
   if (!text) return "";
   return text.length > maxLen ? text.slice(0, maxLen) + "\u2026" : text;
 }
-
-// src/content/ui/theme-picker.js
-var themes = {
-  dark: {
-    "--tr-bg": "#252526",
-    "--tr-text": "#cccccc",
-    "--tr-border": "#454545",
-    "--tr-input-bg": "#3c3c3c",
-    "--tr-input-text": "#cccccc",
-    "--tr-placeholder": "#858585",
-    "--tr-btn-hover": "#3c3c3c",
-    "--tr-btn-active-bg": "#454545",
-    "--tr-accent": "#0e639c",
-    "--tr-accent-text": "#ffffff",
-    "--tr-highlight-match": "rgba(255, 215, 0, 0.3)",
-    "--tr-highlight-current": "rgba(255, 100, 0, 0.5)",
-    "--tr-overlay-match": "rgba(255, 215, 0, 0.4)",
-    "--tr-overlay-current": "rgba(255, 100, 0, 0.6)",
-    "--tr-scrollbar-track": "#1e1e1e",
-    "--tr-scrollbar-thumb": "#424242",
-    "--tr-success": "#4ec9b0",
-    "--tr-warning": "#ce9178",
-    "--tr-error": "#f14c4c"
-  },
-  light: {
-    "--tr-bg": "#ffffff",
-    "--tr-text": "#333333",
-    "--tr-border": "#cccccc",
-    "--tr-input-bg": "#f3f3f3",
-    "--tr-input-text": "#333333",
-    "--tr-placeholder": "#999999",
-    "--tr-btn-hover": "#e8e8e8",
-    "--tr-btn-active-bg": "#d4d4d4",
-    "--tr-accent": "#0078d4",
-    "--tr-accent-text": "#ffffff",
-    "--tr-highlight-match": "rgba(255, 200, 0, 0.4)",
-    "--tr-highlight-current": "rgba(255, 100, 0, 0.5)",
-    "--tr-overlay-match": "rgba(255, 200, 0, 0.4)",
-    "--tr-overlay-current": "rgba(255, 100, 0, 0.6)",
-    "--tr-scrollbar-track": "#f3f3f3",
-    "--tr-scrollbar-thumb": "#c1c1c1",
-    "--tr-success": "#107c10",
-    "--tr-warning": "#d83b01",
-    "--tr-error": "#a80000"
-  },
-  auto: {
-    "--tr-bg": "#252526",
-    "--tr-text": "#cccccc",
-    "--tr-border": "#454545",
-    "--tr-input-bg": "#3c3c3c",
-    "--tr-input-text": "#cccccc",
-    "--tr-placeholder": "#858585",
-    "--tr-btn-hover": "#3c3c3c",
-    "--tr-btn-active-bg": "#454545",
-    "--tr-accent": "#0e639c",
-    "--tr-accent-text": "#ffffff",
-    "--tr-highlight-match": "rgba(255, 215, 0, 0.3)",
-    "--tr-highlight-current": "rgba(255, 100, 0, 0.5)",
-    "--tr-overlay-match": "rgba(255, 215, 0, 0.4)",
-    "--tr-overlay-current": "rgba(255, 100, 0, 0.6)",
-    "--tr-scrollbar-track": "#1e1e1e",
-    "--tr-scrollbar-thumb": "#424242",
-    "--tr-success": "#4ec9b0",
-    "--tr-warning": "#ce9178",
-    "--tr-error": "#f14c4c"
-  },
-  custom: {
-    "--tr-bg": "#252526",
-    "--tr-text": "#cccccc",
-    "--tr-border": "#454545",
-    "--tr-input-bg": "#3c3c3c",
-    "--tr-input-text": "#cccccc",
-    "--tr-placeholder": "#858585",
-    "--tr-btn-hover": "#3c3c3c",
-    "--tr-btn-active-bg": "#454545",
-    "--tr-accent": "#0e639c",
-    "--tr-accent-text": "#ffffff",
-    "--tr-highlight-match": "rgba(255, 215, 0, 0.3)",
-    "--tr-highlight-current": "rgba(255, 100, 0, 0.5)",
-    "--tr-overlay-match": "rgba(255, 215, 0, 0.4)",
-    "--tr-overlay-current": "rgba(255, 100, 0, 0.6)",
-    "--tr-scrollbar-track": "#1e1e1e",
-    "--tr-scrollbar-thumb": "#424242",
-    "--tr-success": "#4ec9b0",
-    "--tr-warning": "#ce9178",
-    "--tr-error": "#f14c4c"
-  }
-};
-var presets = {
-  monokai: {
-    panelBg: "#272822",
-    searchHighlight: "#a6e22e",
-    previewHighlight: "#f92672"
-  },
-  nord: {
-    panelBg: "#2e3440",
-    searchHighlight: "#88c0d0",
-    previewHighlight: "#a3be8c"
-  },
-  "solarized-dark": {
-    panelBg: "#002b36",
-    searchHighlight: "#268bd2",
-    previewHighlight: "#b58900"
-  },
-  "solarized-light": {
-    panelBg: "#fdf6e3",
-    searchHighlight: "#268bd2",
-    previewHighlight: "#cb4b16"
-  },
-  "one-dark": {
-    panelBg: "#282c34",
-    searchHighlight: "#e5c07b",
-    previewHighlight: "#c678dd"
-  }
-};
-function hexToRgb(hex) {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) } : { r: 0, g: 0, b: 0 };
-}
-function hexToRgba(hex, alpha) {
-  const { r, g, b } = hexToRgb(hex);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-function lightenColor(hex, percent) {
-  const { r, g, b } = hexToRgb(hex);
-  const factor = 1 + percent / 100;
-  return `rgb(${Math.min(255, Math.round(r * factor))}, ${Math.min(255, Math.round(g * factor))}, ${Math.min(255, Math.round(b * factor))})`;
-}
-function darkenColor(hex, percent) {
-  const { r, g, b } = hexToRgb(hex);
-  const factor = 1 - percent / 100;
-  return `rgb(${Math.max(0, Math.round(r * factor))}, ${Math.max(0, Math.round(g * factor))}, ${Math.max(0, Math.round(b * factor))})`;
-}
-function applyTheme(mode, hostElement2) {
-  if (!hostElement2) return;
-  const vars = themes[mode] || themes["dark"];
-  for (const [key, value] of Object.entries(vars)) {
-    hostElement2.style.setProperty(key, value);
-  }
-  if (mode === "auto") {
-    const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    if (prefersDark) {
-      for (const [key, value] of Object.entries(themes["dark"])) {
-        hostElement2.style.setProperty(key, value);
-      }
-    } else {
-      for (const [key, value] of Object.entries(themes["light"])) {
-        hostElement2.style.setProperty(key, value);
-      }
+async function loadHistoryItemsForPanel(panel) {
+  const listEl = panel.querySelector("#tr-history-list");
+  if (!listEl) return;
+  try {
+    const history = await getHistory();
+    listEl.innerHTML = "";
+    if (history.length === 0) {
+      listEl.innerHTML = '<div style="padding:5px 0;font-size:11px;color:var(--tr-placeholder,#858585);">\u6682\u65E0\u5386\u53F2\u8BB0\u5F55</div>';
+      return;
     }
-  }
-  saveTheme({ mode });
-}
-async function initTheme(hostElement2) {
-  const config = await getTheme();
-  const mode = config.mode || "dark";
-  if (mode === "custom" && config.custom) {
-    applyCustomColors(
-      config.custom.panelBg || "#252526",
-      config.custom.searchHighlight || "#ffd700",
-      config.custom.previewHighlight || "#00ff00",
-      hostElement2
-    );
-    saveTheme({ mode: "custom", custom: config.custom });
-  } else {
-    applyTheme(mode, hostElement2);
-  }
-}
-function applyCustomColors(panelColor, searchColor, previewColor, hostElement2) {
-  if (!hostElement2) return;
-  const panelRGB = hexToRgb(panelColor);
-  const isDark = panelRGB.r * 0.299 + panelRGB.g * 0.587 + panelRGB.b * 0.114 < 128;
-  hostElement2.style.setProperty("--tr-bg", panelColor);
-  hostElement2.style.setProperty("--tr-text", isDark ? "#e0e0e0" : "#222222");
-  hostElement2.style.setProperty("--tr-border", isDark ? "#454545" : "#cccccc");
-  hostElement2.style.setProperty("--tr-input-bg", isDark ? lightenColor(panelColor, 10) : darkenColor(panelColor, 5));
-  hostElement2.style.setProperty("--tr-input-text", isDark ? "#e0e0e0" : "#222222");
-  hostElement2.style.setProperty("--tr-placeholder", isDark ? "#858585" : "#999999");
-  hostElement2.style.setProperty("--tr-btn-hover", isDark ? lightenColor(panelColor, 8) : darkenColor(panelColor, 8));
-  hostElement2.style.setProperty("--tr-btn-active-bg", isDark ? lightenColor(panelColor, 16) : darkenColor(panelColor, 16));
-  hostElement2.style.setProperty("--tr-accent", "#0e639c");
-  hostElement2.style.setProperty("--tr-accent-text", "#ffffff");
-  hostElement2.style.setProperty("--tr-highlight-match", hexToRgba(searchColor, 0.3));
-  hostElement2.style.setProperty("--tr-highlight-current", hexToRgba(searchColor, 0.5));
-  hostElement2.style.setProperty("--tr-overlay-match", hexToRgba(searchColor, 0.4));
-  hostElement2.style.setProperty("--tr-overlay-current", hexToRgba(searchColor, 0.6));
-  hostElement2.style.setProperty("--tr-preview-selected", hexToRgba(previewColor, 0.4));
-  hostElement2.style.setProperty("--tr-scrollbar-track", isDark ? "#1e1e1e" : "#f3f3f3");
-  hostElement2.style.setProperty("--tr-scrollbar-thumb", isDark ? "#424242" : "#c1c1c1");
-  hostElement2.style.setProperty("--tr-success", isDark ? "#4ec9b0" : "#107c10");
-  hostElement2.style.setProperty("--tr-warning", isDark ? "#ce9178" : "#d83b01");
-  hostElement2.style.setProperty("--tr-error", isDark ? "#f14c4c" : "#a80000");
-}
-function applyPreset(presetName, hostElement2) {
-  const preset = presets[presetName];
-  if (!preset) return;
-  applyCustomColors(preset.panelBg, preset.searchHighlight, preset.previewHighlight, hostElement2);
-  saveTheme({
-    mode: "custom",
-    custom: {
-      panelBg: preset.panelBg,
-      searchHighlight: preset.searchHighlight,
-      previewHighlight: preset.previewHighlight
-    }
-  });
-}
-function renderCustomPicker(container, hostElement2) {
-  const pickerHTML = `
-    <div class="tr-custom-picker" style="padding:8px 12px;">
-      <div class="tr-picker-item" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-        <label style="font-size:11px;color:var(--tr-placeholder,#858585);">\u9762\u677F\u4E3B\u8272</label>
-        <input type="color" id="tr-color-panel" value="#252526" style="width:32px;height:22px;border:none;border-radius:2px;cursor:pointer;background:transparent;padding:0;">
-      </div>
-      <div class="tr-picker-item" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-        <label style="font-size:11px;color:var(--tr-placeholder,#858585);">\u641C\u7D22\u9AD8\u4EAE\u8272</label>
-        <input type="color" id="tr-color-search-hl" value="#ffd700" style="width:32px;height:22px;border:none;border-radius:2px;cursor:pointer;background:transparent;padding:0;">
-      </div>
-      <div class="tr-picker-item" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-        <label style="font-size:11px;color:var(--tr-placeholder,#858585);">\u9884\u89C8\u9AD8\u4EAE\u8272</label>
-        <input type="color" id="tr-color-preview-hl" value="#00ff00" style="width:32px;height:22px;border:none;border-radius:2px;cursor:pointer;background:transparent;padding:0;">
-      </div>
-      <div class="tr-picker-presets">
-        <label style="font-size:11px;font-weight:600;color:var(--tr-placeholder,#858585);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">\u9884\u8BBE\u8272\u677F</label>
-        <div class="tr-preset-grid" style="display:flex;flex-wrap:wrap;gap:4px;">
-          <button class="tr-preset-btn" data-preset="monokai" style="background:var(--tr-input-bg,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#cccccc);cursor:pointer;font-size:11px;padding:2px 8px;border-radius:3px;">Monokai</button>
-          <button class="tr-preset-btn" data-preset="nord" style="background:var(--tr-input-bg,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#cccccc);cursor:pointer;font-size:11px;padding:2px 8px;border-radius:3px;">Nord</button>
-          <button class="tr-preset-btn" data-preset="solarized-dark" style="background:var(--tr-input-bg,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#cccccc);cursor:pointer;font-size:11px;padding:2px 8px;border-radius:3px;">Solarized Dark</button>
-          <button class="tr-preset-btn" data-preset="solarized-light" style="background:var(--tr-input-bg,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#cccccc);cursor:pointer;font-size:11px;padding:2px 8px;border-radius:3px;">Solarized Light</button>
-          <button class="tr-preset-btn" data-preset="one-dark" style="background:var(--tr-input-bg,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#cccccc);cursor:pointer;font-size:11px;padding:2px 8px;border-radius:3px;">One Dark</button>
-        </div>
-      </div>
-    </div>
-  `;
-  container.innerHTML = pickerHTML;
-  const panelPicker = container.querySelector("#tr-color-panel");
-  const searchHlPicker = container.querySelector("#tr-color-search-hl");
-  const previewHlPicker = container.querySelector("#tr-color-preview-hl");
-  getTheme().then((config) => {
-    if (config.mode === "custom" && config.custom) {
-      panelPicker.value = config.custom.panelBg || "#252526";
-      searchHlPicker.value = config.custom.searchHighlight || "#ffd700";
-      previewHlPicker.value = config.custom.previewHighlight || "#00ff00";
-      applyCustomColors(panelPicker.value, searchHlPicker.value, previewHlPicker.value, hostElement2);
-    }
-  });
-  const updateCustom = () => {
-    applyCustomColors(panelPicker.value, searchHlPicker.value, previewHlPicker.value, hostElement2);
-    saveTheme({
-      mode: "custom",
-      custom: {
-        panelBg: panelPicker.value,
-        searchHighlight: searchHlPicker.value,
-        previewHighlight: previewHlPicker.value
-      }
-    });
-  };
-  panelPicker.addEventListener("input", updateCustom);
-  searchHlPicker.addEventListener("input", updateCustom);
-  previewHlPicker.addEventListener("input", updateCustom);
-  container.querySelectorAll(".tr-preset-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const presetName = btn.dataset.preset;
-      const preset = presets[presetName];
-      if (!preset) return;
-      panelPicker.value = preset.panelBg;
-      searchHlPicker.value = preset.searchHighlight;
-      previewHlPicker.value = preset.previewHighlight;
-      applyPreset(presetName, hostElement2);
-    });
-  });
-  container.querySelectorAll(".tr-preset-btn").forEach((btn) => {
-    btn.addEventListener("mouseenter", () => {
-      btn.style.background = "var(--tr-btn-hover,#3c3c3c)";
-    });
-    btn.addEventListener("mouseleave", () => {
-      btn.style.background = "var(--tr-input-bg,#3c3c3c)";
-    });
-  });
-}
-
-// src/content/ui/toolbar.js
-var hostElementRef = null;
-var moreMenuElement = null;
-var menuVisible = false;
-function renderToolbar(container, hostElement2) {
-  if (hostElement2) {
-    hostElementRef = hostElement2;
-  }
-  const toolbarRow = document.createElement("div");
-  toolbarRow.className = "tr-input-row";
-  toolbarRow.id = "tr-toolbar-row";
-  toolbarRow.innerHTML = `
-    <div class="tr-toolbar" style="position: relative;">
-      <button class="tr-btn tr-tool-btn" id="tr-more-btn" title="\u66F4\u591A">\u22EF</button>
-    </div>
-  `;
-  container.appendChild(toolbarRow);
-  const toolbarContainer = toolbarRow.querySelector(".tr-toolbar");
-  renderMoreMenu(toolbarContainer);
-  const moreBtn = toolbarRow.querySelector("#tr-more-btn");
-  moreBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    toggleMoreMenu();
-  });
-  document.addEventListener("click", (e) => {
-    const path = e.composedPath();
-    if (!path.some((el) => el === toolbarRow)) {
-      toggleMoreMenu(false);
-    }
-  }, true);
-  if (hostElementRef) {
-    initTheme(hostElementRef);
-  }
-}
-function renderMoreMenu(container) {
-  if (moreMenuElement) return moreMenuElement;
-  moreMenuElement = document.createElement("div");
-  moreMenuElement.className = "tr-more-menu";
-  moreMenuElement.id = "tr-more-menu";
-  moreMenuElement.style.cssText = "position:absolute;top:100%;left:0;margin-top:2px;background:var(--tr-bg,#252526);border:1px solid var(--tr-border,#454545);border-radius:4px;min-width:260px;max-height:400px;overflow-y:auto;z-index:20;display:none;";
-  moreMenuElement.innerHTML = `
-    <div class="tr-menu-section">
-      <div class="tr-menu-title" style="padding:8px 12px 4px;font-size:11px;font-weight:600;color:var(--tr-placeholder,#858585);text-transform:uppercase;letter-spacing:0.5px;">
-        \u{1F3A8} \u4E3B\u9898
-      </div>
-      <button class="tr-menu-item" data-theme="dark" style="display:block;width:100%;text-align:left;padding:4px 12px;font-size:12px;cursor:pointer;color:var(--tr-text,#cccccc);background:transparent;border:none;">\u{1F319} Dark</button>
-      <button class="tr-menu-item" data-theme="light" style="display:block;width:100%;text-align:left;padding:4px 12px;font-size:12px;cursor:pointer;color:var(--tr-text,#cccccc);background:transparent;border:none;">\u2600\uFE0F Light</button>
-      <button class="tr-menu-item" data-theme="auto" style="display:block;width:100%;text-align:left;padding:4px 12px;font-size:12px;cursor:pointer;color:var(--tr-text,#cccccc);background:transparent;border:none;">\u{1F504} Auto</button>
-      <button class="tr-menu-item" id="tr-theme-custom-btn" data-theme="custom" style="display:block;width:100%;text-align:left;padding:4px 12px;font-size:12px;cursor:pointer;color:var(--tr-text,#cccccc);background:transparent;border:none;">\u{1F3A8} Custom</button>
-      <div id="tr-custom-picker-container" style="display:none;"></div>
-    </div>
-    <div class="tr-menu-divider" style="height:1px;background:var(--tr-border,#454545);margin:4px 0;"></div>
-    <div class="tr-menu-section">
-      <div class="tr-menu-title" style="padding:8px 12px 4px;font-size:11px;font-weight:600;color:var(--tr-placeholder,#858585);text-transform:uppercase;letter-spacing:0.5px;">
-        \u5386\u53F2\u8BB0\u5F55
-      </div>
-      <div id="tr-history-list" style="max-height:150px;overflow-y:auto;"></div>
-    </div>
-    <div class="tr-menu-section">
-      <div class="tr-menu-title" style="padding:8px 12px 4px;font-size:11px;font-weight:600;color:var(--tr-placeholder,#858585);text-transform:uppercase;letter-spacing:0.5px;">
-        \u9884\u8BBE\u89C4\u5219
-      </div>
-      <div id="tr-preset-toolbar" style="padding:2px 12px 4px;display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
-        <input id="tr-preset-search" type="text" placeholder="\u641C\u7D22\u9884\u8BBE..." style="flex:1;min-width:0;background:var(--tr-input-bg,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#cccccc);padding:2px 6px;font-size:11px;border-radius:3px;outline:none;">
-        <button id="tr-preset-save-btn" title="\u4FDD\u5B58\u5F53\u524D\u4E3A\u9884\u8BBE" style="background:var(--tr-btn,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#cccccc);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;white-space:nowrap;">\u{1F4BE}\u4FDD\u5B58</button>
-        <button id="tr-preset-export-btn" title="\u5BFC\u51FA\u5168\u90E8\u9884\u8BBE" style="background:var(--tr-btn,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#cccccc);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;">\u{1F4E4}</button>
-        <button id="tr-preset-import-btn" title="\u5BFC\u5165\u9884\u8BBE" style="background:var(--tr-btn,#3c3c3c);border:1px solid var(--tr-border,#454545);color:var(--tr-text,#cccccc);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;">\u{1F4E5}</button>
-      </div>
-      <div id="tr-preset-list" style="max-height:150px;overflow-y:auto;"></div>
-    </div>
-  `;
-  const fileInput = document.createElement("input");
-  fileInput.type = "file";
-  fileInput.accept = ".json";
-  fileInput.id = "tr-preset-file-input";
-  fileInput.style.display = "none";
-  moreMenuElement.appendChild(fileInput);
-  container.appendChild(moreMenuElement);
-  bindThemeEvents();
-  bindPresetEvents(moreMenuElement);
-  return moreMenuElement;
-}
-function bindThemeEvents() {
-  const menu = moreMenuElement;
-  if (!menu) return;
-  menu.querySelectorAll("[data-theme]").forEach((btn) => {
-    btn.addEventListener("mouseenter", () => {
-      btn.style.background = "var(--tr-btn-hover,#3c3c3c)";
-    });
-    btn.addEventListener("mouseleave", () => {
-      btn.style.background = "transparent";
-    });
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const mode = btn.dataset.theme;
-      if (mode === "custom") {
-        const pickerContainer = menu.querySelector("#tr-custom-picker-container");
-        if (pickerContainer) {
-          const isVisible = pickerContainer.style.display !== "none";
-          if (isVisible) {
-            pickerContainer.style.display = "none";
-          } else {
-            pickerContainer.style.display = "block";
-            if (hostElementRef) {
-              renderCustomPicker(pickerContainer, hostElementRef);
-            }
+    for (const entry of history) {
+      const item = document.createElement("div");
+      item.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:5px 0;min-height:24px;font-size:12px;cursor:pointer;color:var(--tr-text,#ccc);word-break:break-all;overflow-wrap:break-word;";
+      item.addEventListener("mouseenter", () => {
+        item.style.background = "var(--tr-btn-hover,#3c3c3c)";
+      });
+      item.addEventListener("mouseleave", () => {
+        item.style.background = "";
+      });
+      const span = document.createElement("span");
+      span.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+      span.textContent = `${truncate(entry.findText, 20)} \u2192 ${truncate(entry.replaceText, 20)}`;
+      span.title = `\u67E5\u627E: ${entry.findText}
+\u66FF\u6362: ${entry.replaceText}`;
+      span.addEventListener("click", () => {
+        const panelEl = _getPanelElement();
+        if (panelEl) {
+          const fi = panelEl.querySelector(`#${UIConstants.FIND_INPUT_ID}`);
+          const ri = panelEl.querySelector(`#${UIConstants.REPLACE_INPUT_ID}`);
+          if (fi) {
+            fi.value = entry.findText || "";
+            fi.dispatchEvent(new Event("input", { bubbles: true }));
           }
+          if (ri) ri.value = entry.replaceText || "";
         }
-      } else {
-        const pickerContainer = menu.querySelector("#tr-custom-picker-container");
-        if (pickerContainer) pickerContainer.style.display = "none";
-        if (hostElementRef) {
-          applyTheme(mode, hostElementRef);
+        const tr = panelEl == null ? void 0 : panelEl.querySelector("#tr-replace-row");
+        if (tr) tr.classList.add(UIConstants.REPLACE_VISIBLE_CLASS);
+      });
+      const favBtn = document.createElement("button");
+      favBtn.textContent = "\u2B50";
+      favBtn.title = "\u4FDD\u5B58\u4E3A\u9884\u8BBE";
+      favBtn.style.cssText = "background:transparent;border:none;cursor:pointer;font-size:14px;padding:0 4px;";
+      favBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const defaultName = entry.findText || "\u672A\u547D\u540D";
+        try {
+          await savePreset(defaultName, entry.findText || "", entry.replaceText || "", entry.options || {});
+          const msg = entry.replaceText ? `${entry.findText}\u2192${entry.replaceText} \u6536\u85CF\u6210\u529F` : `${entry.findText} \u6536\u85CF\u6210\u529F`;
+          showToast(msg);
+          loadPresetItemsForPanel(panel);
+        } catch (err) {
+          showToast("\u6536\u85CF\u5931\u8D25: " + err.message);
         }
-      }
-    });
-  });
-}
-function toggleMoreMenu(force) {
-  const menu = moreMenuElement;
-  if (!menu) return;
-  const shouldShow = force !== void 0 ? force : !menuVisible;
-  if (shouldShow) {
-    menu.style.display = "block";
-    menuVisible = true;
-    loadHistoryItems(menu);
-    loadPresetItems(menu);
-  } else {
-    menu.style.display = "none";
-    menuVisible = false;
+      });
+      const delBtn = document.createElement("button");
+      delBtn.textContent = "\u{1F5D1}";
+      delBtn.title = "\u5220\u9664";
+      delBtn.style.cssText = "background:transparent;border:none;cursor:pointer;font-size:12px;padding:0 4px;";
+      delBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await deleteHistoryItem(entry.id);
+        loadHistoryItemsForPanel(panel);
+      });
+      item.appendChild(span);
+      item.appendChild(favBtn);
+      item.appendChild(delBtn);
+      listEl.appendChild(item);
+    }
+  } catch (_) {
   }
+}
+async function loadPresetItemsForPanel(panel, batchModeOverride) {
+  var _a, _b;
+  const listEl = panel.querySelector("#tr-preset-list");
+  if (!listEl) return;
+  const batchMode = batchModeOverride || (((_a = window._trBatchState) == null ? void 0 : _a.batchMode) || false);
+  try {
+    let presets = await getPresets();
+    const searchTerm = (((_b = panel.querySelector("#tr-preset-search-input")) == null ? void 0 : _b.value) || "").toLowerCase();
+    if (searchTerm) presets = presets.filter((p) => (p.name || "").toLowerCase().includes(searchTerm));
+    listEl.innerHTML = "";
+    if (presets.length === 0) {
+      listEl.innerHTML = `<div style="padding:5px 0;font-size:11px;color:var(--tr-placeholder,#858585);">${searchTerm ? "\u65E0\u5339\u914D" : "\u6682\u65E0\u9884\u8BBE"}</div>`;
+      return;
+    }
+    for (const preset of presets) {
+      const item = document.createElement("div");
+      item.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:5px 0;min-height:24px;font-size:12px;color:var(--tr-text,#ccc);word-break:break-all;overflow-wrap:break-word;";
+      if (batchMode) {
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.style.cssText = "margin-right:8px;flex-shrink:0;";
+        cb.addEventListener("change", () => {
+          if (cb.checked) window._trBatchState.selectedIds.add(preset.id);
+          else window._trBatchState.selectedIds.delete(preset.id);
+          window._trBatchState.updateBatchBtn();
+        });
+        item.appendChild(cb);
+      }
+      const span = document.createElement("span");
+      span.style.cssText = "flex:1;cursor:pointer;overflow:hidden;";
+      span.innerHTML = `<div style="font-weight:500;">${escapeHtml(preset.name)}</div><div style="font-size:10px;color:var(--tr-placeholder,#858585);">${escapeHtml(preset.findText || "(\u7A7A)")}${preset.replaceText ? " \u2192 " + escapeHtml(preset.replaceText) : ""}</div>`;
+      span.addEventListener("click", () => {
+        if (batchMode) return;
+        const panelEl = _getPanelElement();
+        if (panelEl) {
+          const fi = panelEl.querySelector(`#${UIConstants.FIND_INPUT_ID}`);
+          const ri = panelEl.querySelector(`#${UIConstants.REPLACE_INPUT_ID}`);
+          if (fi) {
+            fi.value = preset.findText || "";
+            fi.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+          if (ri) ri.value = preset.replaceText || "";
+        }
+      });
+      item.appendChild(span);
+      if (!batchMode) {
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "\u270F\uFE0F";
+        editBtn.title = "\u4FEE\u6539";
+        editBtn.style.cssText = "background:transparent;border:none;cursor:pointer;font-size:12px;padding:0 4px;flex-shrink:0;";
+        editBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openModal("edit", preset);
+        });
+        item.appendChild(editBtn);
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "\u{1F5D1}";
+        delBtn.title = "\u5220\u9664";
+        delBtn.style.cssText = "background:transparent;border:none;cursor:pointer;font-size:12px;padding:0 4px;flex-shrink:0;";
+        delBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const ok = await showConfirm("\u786E\u8BA4\u5220\u9664\u8BE5\u9884\u8BBE\uFF1F");
+          if (ok) {
+            await deletePreset(preset.id);
+            showToast("\u5220\u9664\u6210\u529F");
+            loadPresetItemsForPanel(panel);
+            if (_customPanel) renderAllPresetsInCustomPanel(_customPanel);
+          }
+        });
+        item.appendChild(delBtn);
+      }
+      listEl.appendChild(item);
+    }
+  } catch (_) {
+  }
+}
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str || "";
+  return div.innerHTML;
+}
+function openModal(mode, presetData = null) {
+  if (!_modalState) return;
+  const { modal, modalTitle, modalName, modalFind, modalReplace } = _modalState;
+  const submitNextBtn = modal.querySelector("#tr-modal-submit-next");
+  const submitBtn = modal.querySelector("#tr-modal-submit");
+  _modalState.mode = mode;
+  if (mode === "add") {
+    modalTitle.textContent = "\u65B0\u589E\u9884\u8BBE";
+    modalName.value = "";
+    modalFind.value = "";
+    modalReplace.value = "";
+    modalName.placeholder = "\u9884\u8BBE\u540D\u79F0\uFF08\u4E3A\u7A7A\u53D6\u641C\u7D22\u6587\u672C\uFF09";
+    _modalState.editingPresetId = null;
+    if (submitNextBtn) submitNextBtn.style.display = "";
+    if (submitBtn) submitBtn.textContent = "\u63D0\u4EA4";
+  } else if (mode === "edit" && presetData) {
+    modalTitle.textContent = "\u4FEE\u6539\u9884\u8BBE";
+    modalName.value = presetData.name || "";
+    modalFind.value = presetData.findText || "";
+    modalReplace.value = presetData.replaceText || "";
+    modalName.placeholder = presetData.findText || "\u9884\u8BBE\u540D\u79F0\uFF08\u4E3A\u7A7A\u53D6\u641C\u7D22\u6587\u672C\uFF09";
+    _modalState.editingPresetId = presetData.id;
+    if (submitNextBtn) submitNextBtn.style.display = "none";
+    if (submitBtn) submitBtn.textContent = "\u4FEE\u6539";
+  }
+  modal.style.display = "flex";
+  setTimeout(() => modalName.focus(), 50);
+}
+function closeModal() {
+  if (_modalState) _modalState.modal.style.display = "none";
+}
+async function submitModal(keepOpen) {
+  if (!_modalState) return;
+  const { modalName, modalFind, modalReplace } = _modalState;
+  const findText = modalFind.value;
+  const replaceText = modalReplace.value;
+  const name = modalName.value.trim() || findText.trim() || "\u672A\u547D\u540D";
+  try {
+    if (_modalState.mode === "edit" && _modalState.editingPresetId) {
+      await updatePreset(_modalState.editingPresetId, name, findText, replaceText);
+      const msg = replaceText ? `${findText}\u2192${replaceText} \u4FEE\u6539\u6210\u529F` : `${findText} \u4FEE\u6539\u6210\u529F`;
+      showToast(msg);
+      closeModal();
+    } else {
+      await savePreset(name, findText, replaceText);
+      const msg = replaceText ? `${findText}\u2192${replaceText} \u65B0\u589E\u6210\u529F` : `${findText} \u65B0\u589E\u6210\u529F`;
+      showToast(msg);
+      if (!keepOpen) {
+        closeModal();
+      } else {
+        modalName.value = "";
+        modalFind.value = "";
+        modalReplace.value = "";
+        modalName.placeholder = "\u9884\u8BBE\u540D\u79F0\uFF08\u4E3A\u7A7A\u53D6\u641C\u7D22\u6587\u672C\uFF09";
+        modalName.focus();
+      }
+    }
+    loadPresetItemsForPanel(_historyPanel);
+  } catch (err) {
+    showToast("\u64CD\u4F5C\u5931\u8D25: " + err.message);
+  }
+}
+function bindPresetEventsForPanel(panel) {
+  const addBtn = panel.querySelector("#tr-preset-add-btn");
+  const importBtn = panel.querySelector("#tr-preset-import-btn");
+  const exportBtn = panel.querySelector("#tr-preset-export-btn");
+  const batchDelBtn = panel.querySelector("#tr-preset-batch-del-btn");
+  const fileInput = panel.querySelector("#tr-preset-file-input");
+  const searchInput = panel.querySelector("#tr-preset-search-input");
+  addBtn == null ? void 0 : addBtn.addEventListener("click", () => openModal("add"));
+  exportBtn == null ? void 0 : exportBtn.addEventListener("click", async () => {
+    const json = await exportPresets();
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `text-replacer-presets-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+  importBtn == null ? void 0 : importBtn.addEventListener("click", () => fileInput == null ? void 0 : fileInput.click());
+  fileInput == null ? void 0 : fileInput.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        await importPresets(ev.target.result);
+        loadPresetItemsForPanel(panel);
+        showToast("\u5BFC\u5165\u6210\u529F");
+      } catch (err) {
+        showToast("\u5BFC\u5165\u5931\u8D25: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+    fileInput.value = "";
+  });
+  searchInput == null ? void 0 : searchInput.addEventListener("input", () => loadPresetItemsForPanel(panel));
+  let batchMode = false;
+  let selectedIds = /* @__PURE__ */ new Set();
+  const exitBatchMode = () => {
+    batchMode = false;
+    selectedIds.clear();
+    batchDelBtn.textContent = "\u{1F5D1}";
+    loadPresetItemsForPanel(panel);
+    if (_customPanel) renderAllPresetsInCustomPanel(_customPanel);
+  };
+  batchDelBtn == null ? void 0 : batchDelBtn.addEventListener("click", async () => {
+    if (!batchMode) {
+      batchMode = true;
+      selectedIds.clear();
+      batchDelBtn.textContent = "\u2713";
+      loadPresetItemsForPanel(panel, true);
+    } else {
+      if (selectedIds.size === 0) {
+        exitBatchMode();
+        return;
+      }
+      const ok = await showConfirm(`\u786E\u8BA4\u5220\u9664 ${selectedIds.size} \u6761\u9884\u8BBE\uFF1F`);
+      if (!ok) {
+        exitBatchMode();
+        return;
+      }
+      for (const id of selectedIds) {
+        await deletePreset(id);
+      }
+      exitBatchMode();
+      showToast("\u5220\u9664\u6210\u529F");
+    }
+  });
+  window._trBatchState = { get batchMode() {
+    return batchMode;
+  }, selectedIds, updateBatchBtn() {
+  } };
 }
 
 // src/content/ui/panel.js
@@ -2586,31 +2953,18 @@ function render(shadowRoot) {
   shadowRoot.appendChild(styleEl);
   renderSearchBar(panelElement, searchOptions2, hide, toggleReplaceRow);
   renderReplaceBar(panelElement, searchOptions2, getPanelElement);
-  const hostEl = shadowRoot.host;
-  renderToolbar(panelElement, hostEl);
   const statusEl = document.createElement("div");
   statusEl.className = "tr-status";
   statusEl.id = "tr-status";
   panelElement.appendChild(statusEl);
   shadowRoot.appendChild(panelElement);
+  const hostEl = shadowRoot.host;
   initTheme(hostEl);
   panelElement.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       e.preventDefault();
       hide();
       return;
-    }
-    if (e.key === "Tab") {
-      e.preventDefault();
-      const findInput = panelElement.querySelector(`#${UIConstants.FIND_INPUT_ID}`);
-      const replaceInput = panelElement.querySelector(`#${UIConstants.REPLACE_INPUT_ID}`);
-      const replaceRow = panelElement.querySelector("#tr-replace-row");
-      const replaceVisible = replaceRow && replaceRow.classList.contains(UIConstants.REPLACE_VISIBLE_CLASS);
-      if (document.activeElement === findInput && replaceInput && replaceVisible) {
-        replaceInput.focus();
-      } else {
-        if (findInput) findInput.focus();
-      }
     }
   });
   return panelElement;
@@ -2651,12 +3005,14 @@ function hide() {
 function toggleReplaceRow() {
   if (!panelElement) return;
   const replaceRow = panelElement.querySelector("#tr-replace-row");
-  const toolbarRow = panelElement.querySelector("#tr-toolbar-row");
   if (replaceRow) {
     replaceRow.classList.toggle(UIConstants.REPLACE_VISIBLE_CLASS);
     const isVisible = replaceRow.classList.contains(UIConstants.REPLACE_VISIBLE_CLASS);
-    if (toolbarRow) {
-      toolbarRow.style.display = isVisible ? "" : "none";
+    if (!isVisible) {
+      const customPanel = panelElement.querySelector("#tr-custom-panel");
+      if (customPanel) customPanel.style.display = "none";
+      const historyPanel = panelElement.querySelector("#tr-history-panel");
+      if (historyPanel) historyPanel.style.display = "none";
     }
     const toggleBtn = panelElement.querySelector("#tr-toggle-replace-btn");
     if (toggleBtn) {
