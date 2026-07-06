@@ -28,6 +28,17 @@ export async function saveHistory(findText, replaceText, options = {}) {
   const currentMeta = meta || { recentHistoryIds: [] };
   const currentHistory = history || {};
 
+  // 去重：最后一条与本次完全一致则跳过
+  if (currentMeta.recentHistoryIds.length > 0) {
+    const lastId = currentMeta.recentHistoryIds[0];
+    const lastEntry = currentHistory[lastId];
+    if (lastEntry &&
+        lastEntry.findText === findText &&
+        lastEntry.replaceText === replaceText) {
+      return lastId; // 重复，跳过
+    }
+  }
+
   const id = generateId();
   const entry = { id, findText, replaceText, options, timestamp: Date.now() };
 

@@ -8,6 +8,7 @@ import { findAllEditableElements, getElementValue, setElementValue, startObservi
 import { ReplaceStatus, UIConstants } from '../../shared/constants.js';
 import { highlightElement, clearHighlight, clearAllHighlights, highlightPreviewElement } from './text-highlighter.js';
 import { saveHistory } from '../../storage/store.js';
+import { proxy } from '../message-proxy.js';
 
 // 通过 Shadow Root 获取面板内的 UI 元素
 function getPanelUIElement(id) {
@@ -137,6 +138,10 @@ export function startListening() {
       return;
     }
 
+    // 预览模式下不触发自动搜索 — 预览高亮由 refreshAllPreviewHighlights 管理
+    // 否则 findMatches → clearAllHighlights 会摧毁预览 overlay，导致点击穿透
+    if (previewMatches.length > 0) return;
+
     // 只处理可编辑元素
     const target = e.target;
     if (target.matches && target.matches('input, textarea, [contenteditable]')) {
@@ -148,8 +153,12 @@ export function startListening() {
         }
         searchTimeout = setTimeout(() => {
           findMatches(currentSearchText, searchOptions, false);
-          // 通知 UI 更新
           updateUIFromSearch();
+          // 通知 UI 层更新预览/替换按钮状态
+          proxy.emit('matches:updated', {
+            count: currentMatches.length,
+            current: currentMatchIndex + 1,
+          });
         }, 300);
       }
     }
@@ -161,10 +170,16 @@ export function startListening() {
   // 启动 DOM 变化监听
   if (!isDOMListening) {
     startObserving(() => {
+      // 预览模式下跳过（高亮由 refreshAllPreviewHighlights 管理）
+      if (previewMatches.length > 0) return;
       // DOM 变化回调：重新执行搜索
       if (currentSearchText && currentSearchText.trim() !== '') {
         findMatches(currentSearchText, searchOptions, false);
         updateUIFromSearch();
+        proxy.emit('matches:updated', {
+          count: currentMatches.length,
+          current: currentMatchIndex + 1,
+        });
       }
     });
     isDOMListening = true;
@@ -486,7 +501,7 @@ function findTextNode(element, offset) {
  * 替换当前匹配
  * @param {string} replaceText - 替换文本
  */
-export function replaceOne(replaceText) {
+export async function replaceOne(replaceText) {
   if (currentMatchIndex < 0 || currentMatchIndex >= currentMatches.length) {
     return {
       status: ReplaceStatus.NO_MATCH,
@@ -516,12 +531,15 @@ export function replaceOne(replaceText) {
     findMatches(newFindText, searchOptions, false);
   }
 
-  // 保存历史记录 (fire-and-forget)
-  saveHistory(
+  // 保存历史记录
+  await saveHistory(
     currentSearchText || '',
     replaceText || '',
     { matchCase: searchOptions.matchCase, matchWord: searchOptions.matchWord, useRegex: searchOptions.useRegex }
   ).catch(() => {});
+
+  // 通知 UI 刷新历史列表
+  proxy.emit('history:updated');
 
   return {
     status: ReplaceStatus.SUCCESS,
@@ -536,7 +554,7 @@ export function replaceOne(replaceText) {
  * @param {string} replaceText - 替换文本
  * @param {Object} options - 搜索选项
  */
-export function replaceAll(findText, replaceText, options = {}) {
+export async function replaceAll(findText, replaceText, options = {}) {
   searchOptions = { ...searchOptions, ...options };
 
   if (!findText || findText.trim() === '') {
@@ -594,11 +612,14 @@ export function replaceAll(findText, replaceText, options = {}) {
   }
 
   // 保存历史记录 (fire-and-forget)
-  saveHistory(
+  await saveHistory(
     findText || '',
     replaceText || '',
     { matchCase: searchOptions.matchCase, matchWord: searchOptions.matchWord, useRegex: searchOptions.useRegex }
   ).catch(() => {});
+
+  // 通知 UI 刷新历史列表
+  proxy.emit('history:updated');
 
   return {
     status: ReplaceStatus.SUCCESS,

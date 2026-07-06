@@ -89,8 +89,8 @@ text-replacer-extension/
 │       ├── panel.css
 │       └── overlay.css
 ├── test/                      # Vitest 单元测试
-├── context/                   # AI 上下文 (设计/决策)
-├── context-output/            # AI 产出物 (设计文档/报告)
+├── _context/                   # AI 上下文 (设计/决策)
+├── _context-output/            # AI 产出物 (设计文档/报告)
 └── plans/                     # 战略规划文档
 ```
 

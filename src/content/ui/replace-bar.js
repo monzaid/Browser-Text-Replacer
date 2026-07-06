@@ -3,7 +3,7 @@
  */
 import { UIConstants, Icons } from '../../shared/constants.js';
 import { proxy } from '../message-proxy.js';
-import { getHistory, savePreset, getPresets, deletePreset, exportPresets, importPresets, updatePreset, getTheme, saveTheme, deleteHistoryItem } from '../../storage/store.js';
+import { getHistory, saveHistory, savePreset, getPresets, deletePreset, exportPresets, importPresets, updatePreset, getTheme, saveTheme, deleteHistoryItem } from '../../storage/store.js';
 import { applyTheme, initTheme, applyCustomColors } from './theme-picker.js';
 
 // ============================================================
@@ -697,6 +697,18 @@ export function renderReplaceBar(container, searchOptions, getPanelElement) {
     }
   });
 
+  // --- 失焦时保存历史（包含替换文本） ---
+  replaceInput.addEventListener('blur', async () => {
+    const panel = getPanelElement();
+    const findInput = panel ? panel.querySelector(`#${UIConstants.FIND_INPUT_ID}`) : null;
+    const findText = findInput ? findInput.value : '';
+    const replaceText = replaceInput.value;
+    if (findText.trim() || replaceText.trim()) {
+      await saveHistory(findText, replaceText, { ...searchOptions }).catch(() => {});
+      proxy.emit('history:updated');
+    }
+  });
+
   // === 预览按钮交互 ===
 
   // 👁 预览按钮：进入/退出预览模式
@@ -715,6 +727,13 @@ export function renderReplaceBar(container, searchOptions, getPanelElement) {
     const replaceText = replaceInput.value;
     const result = await proxy.command('applyPreviewedReplacements', { replaceText });
     showStatus(replaceRow, { status: 'success', message: `已替换 ${result.replaced} 处` });
+
+    // 保存历史记录
+    const panelForHistory = getPanelElement();
+    const findInputForHistory = panelForHistory ? panelForHistory.querySelector(`#${UIConstants.FIND_INPUT_ID}`) : null;
+    const findText = findInputForHistory ? findInputForHistory.value : '';
+    await saveHistory(findText, replaceText, { ...searchOptions }).catch(() => {});
+    proxy.emit('history:updated');
 
     // 退出预览模式
     isPreviewMode = false;
@@ -765,6 +784,16 @@ export function renderReplaceBar(container, searchOptions, getPanelElement) {
       applyPreviewBtn.disabled = data.selected === 0;
     }
   });
+
+  // 监听历史更新事件 — 历史面板打开时自动刷新
+  proxy.on('history:updated', () => {
+    if (_historyPanel && _historyPanel.style.display === 'flex') {
+      const historyList = _historyPanel.querySelector('#tr-history-list');
+      if (historyList && historyList.style.display !== 'none') {
+        loadHistoryItemsForPanel(_historyPanel);
+      }
+    }
+  });
 }
 
 /**
@@ -792,14 +821,14 @@ async function enterPreview(replaceRow, previewBtn, applyPreviewBtn, searchOptio
     if (matchCountEl) matchCountEl.textContent = `预览: 0/${result.count} 选中`;
 
     // 绑定 overlay 单击/双击事件（在 document 上代理）
-    bindOverlayEvents(replaceRow, panel);
+    bindOverlayEvents(replaceRow, panel, searchOptions);
   }
 }
 
 /**
  * 绑定 overlay 交互事件
  */
-function bindOverlayEvents(replaceRow, panel) {
+function bindOverlayEvents(replaceRow, panel, searchOptions) {
   unbindOverlayEvents(); // 先清除旧的
 
   // 防止双击时触发两次单击
@@ -854,6 +883,12 @@ function bindOverlayEvents(replaceRow, panel) {
           const state = await proxy.command('getPreviewState');
           matchCountEl.textContent = `预览: ${state.selected}/${state.total} 选中`;
         }
+
+        // 保存历史记录
+        const findInput = panel.querySelector(`#${UIConstants.FIND_INPUT_ID}`);
+        const findText = findInput ? findInput.value : '';
+        await saveHistory(findText, replaceText, { ...searchOptions }).catch(() => {});
+        proxy.emit('history:updated');
 
         if (dblResult.remaining === 0) {
           // 所有匹配已处理，自动退出预览

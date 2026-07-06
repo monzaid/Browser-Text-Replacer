@@ -703,6 +703,13 @@ async function saveHistory(findText, replaceText, options = {}) {
   const { [META_KEY]: meta, [HISTORY_KEY]: history } = await chrome.storage.local.get([META_KEY, HISTORY_KEY]);
   const currentMeta = meta || { recentHistoryIds: [] };
   const currentHistory = history || {};
+  if (currentMeta.recentHistoryIds.length > 0) {
+    const lastId = currentMeta.recentHistoryIds[0];
+    const lastEntry = currentHistory[lastId];
+    if (lastEntry && lastEntry.findText === findText && lastEntry.replaceText === replaceText) {
+      return lastId;
+    }
+  }
   const id = generateId();
   const entry = { id, findText, replaceText, options, timestamp: Date.now() };
   currentHistory[id] = entry;
@@ -839,6 +846,110 @@ async function getTheme() {
   return theme || { mode: "dark" };
 }
 
+// src/content/message-proxy.js
+var MessageProxy = class {
+  constructor() {
+    this._listeners = /* @__PURE__ */ new Map();
+  }
+  /**
+   * 执行命令（panel → engine）
+   * @param {string} name - 命令名
+   * @param {Object} payload - 命令参数
+   * @returns {Promise<Object>} 命令执行结果
+   */
+  async command(name, payload = {}) {
+    switch (name) {
+      case "search":
+        return findMatches(payload.text, payload.options || {}, payload.shouldFocus || false);
+      case "replaceOne":
+        return replaceOne(payload.text || "");
+      case "replaceAll":
+        return replaceAll(
+          payload.findText || "",
+          payload.replaceText || "",
+          payload.options || {}
+        );
+      case "navigate":
+        if (payload.direction === "prev") {
+          return goToPrevMatch();
+        } else {
+          return goToNextMatch();
+        }
+      case "focusCurrentMatch":
+        return focusCurrentMatch();
+      case "isCurrentMatchInViewport":
+        return isCurrentMatchInViewport();
+      case "startListening":
+        startListening();
+        return { success: true };
+      case "stopListening":
+        stopListening();
+        return { success: true };
+      case "clearHighlights":
+        clearAllHighlights();
+        return { success: true };
+      case "enterPreview":
+        return { count: enterPreviewMode(payload.text || "", payload.options || {}) };
+      case "togglePreviewMatch":
+        return togglePreviewMatch(payload.index);
+      case "executeDoubleReplace":
+        return executeDoubleReplace(payload.index, payload.replaceText || "");
+      case "applyPreviewedReplacements":
+        return applyPreviewedReplacements(payload.replaceText || "");
+      case "exitPreview":
+        exitPreviewMode();
+        return { success: true };
+      case "getPreviewState":
+        return getPreviewState();
+      default:
+        throw new Error(`Unknown command: ${name}`);
+    }
+  }
+  /**
+   * 监听事件（panel 订阅 engine 事件）
+   * @param {string} eventName - 事件名
+   * @param {Function} handler - 事件处理函数
+   * @returns {Function} 取消订阅函数
+   */
+  on(eventName, handler) {
+    if (!this._listeners.has(eventName)) {
+      this._listeners.set(eventName, []);
+    }
+    this._listeners.get(eventName).push(handler);
+    return () => {
+      const handlers = this._listeners.get(eventName);
+      if (handlers) {
+        const idx = handlers.indexOf(handler);
+        if (idx >= 0) handlers.splice(idx, 1);
+      }
+    };
+  }
+  /**
+   * 触发事件（engine → panel）
+   * @param {string} eventName - 事件名
+   * @param {*} data - 事件数据
+   */
+  emit(eventName, data) {
+    const handlers = this._listeners.get(eventName);
+    if (handlers) {
+      handlers.forEach((handler) => {
+        try {
+          handler(data);
+        } catch (e) {
+          console.error(`[MessageProxy] Error in handler for "${eventName}":`, e);
+        }
+      });
+    }
+  }
+  /**
+   * 移除所有监听器（面板关闭时清理）
+   */
+  clear() {
+    this._listeners.clear();
+  }
+};
+var proxy = new MessageProxy();
+
 // src/content/core/text-replacer.js
 function getPanelUIElement(id) {
   const host = document.getElementById("text-replacer-host");
@@ -924,6 +1035,7 @@ function startListening() {
     if (isPanelElement(e.target)) {
       return;
     }
+    if (previewMatches.length > 0) return;
     const target = e.target;
     if (target.matches && target.matches("input, textarea, [contenteditable]")) {
       if (currentSearchText && currentSearchText.trim() !== "") {
@@ -933,6 +1045,10 @@ function startListening() {
         searchTimeout = setTimeout(() => {
           findMatches(currentSearchText, searchOptions, false);
           updateUIFromSearch();
+          proxy.emit("matches:updated", {
+            count: currentMatches.length,
+            current: currentMatchIndex + 1
+          });
         }, 300);
       }
     }
@@ -941,9 +1057,14 @@ function startListening() {
   document.addEventListener("change", inputListener, true);
   if (!isDOMListening) {
     startObserving(() => {
+      if (previewMatches.length > 0) return;
       if (currentSearchText && currentSearchText.trim() !== "") {
         findMatches(currentSearchText, searchOptions, false);
         updateUIFromSearch();
+        proxy.emit("matches:updated", {
+          count: currentMatches.length,
+          current: currentMatchIndex + 1
+        });
       }
     });
     isDOMListening = true;
@@ -1110,7 +1231,7 @@ function scrollToMatch(element, matchStart, matchEnd) {
     console.warn("\u6EDA\u52A8\u5230\u5339\u914D\u4F4D\u7F6E\u5931\u8D25:", e);
   }
 }
-function replaceOne(replaceText) {
+async function replaceOne(replaceText) {
   if (currentMatchIndex < 0 || currentMatchIndex >= currentMatches.length) {
     return {
       status: ReplaceStatus.NO_MATCH,
@@ -1129,19 +1250,20 @@ function replaceOne(replaceText) {
   if (newFindText) {
     findMatches(newFindText, searchOptions, false);
   }
-  saveHistory(
+  await saveHistory(
     currentSearchText || "",
     replaceText || "",
     { matchCase: searchOptions.matchCase, matchWord: searchOptions.matchWord, useRegex: searchOptions.useRegex }
   ).catch(() => {
   });
+  proxy.emit("history:updated");
   return {
     status: ReplaceStatus.SUCCESS,
     count: currentMatches.length,
     current: currentMatchIndex + 1
   };
 }
-function replaceAll(findText, replaceText, options = {}) {
+async function replaceAll(findText, replaceText, options = {}) {
   searchOptions = { ...searchOptions, ...options };
   if (!findText || findText.trim() === "") {
     return {
@@ -1187,12 +1309,13 @@ function replaceAll(findText, replaceText, options = {}) {
       matchCount: 0
     };
   }
-  saveHistory(
+  await saveHistory(
     findText || "",
     replaceText || "",
     { matchCase: searchOptions.matchCase, matchWord: searchOptions.matchWord, useRegex: searchOptions.useRegex }
   ).catch(() => {
   });
+  proxy.emit("history:updated");
   return {
     status: ReplaceStatus.SUCCESS,
     message: `\u5DF2\u66FF\u6362 ${totalMatches} \u5904`,
@@ -1327,110 +1450,6 @@ function getPreviewState() {
   };
 }
 
-// src/content/message-proxy.js
-var MessageProxy = class {
-  constructor() {
-    this._listeners = /* @__PURE__ */ new Map();
-  }
-  /**
-   * 执行命令（panel → engine）
-   * @param {string} name - 命令名
-   * @param {Object} payload - 命令参数
-   * @returns {Promise<Object>} 命令执行结果
-   */
-  async command(name, payload = {}) {
-    switch (name) {
-      case "search":
-        return findMatches(payload.text, payload.options || {}, payload.shouldFocus || false);
-      case "replaceOne":
-        return replaceOne(payload.text || "");
-      case "replaceAll":
-        return replaceAll(
-          payload.findText || "",
-          payload.replaceText || "",
-          payload.options || {}
-        );
-      case "navigate":
-        if (payload.direction === "prev") {
-          return goToPrevMatch();
-        } else {
-          return goToNextMatch();
-        }
-      case "focusCurrentMatch":
-        return focusCurrentMatch();
-      case "isCurrentMatchInViewport":
-        return isCurrentMatchInViewport();
-      case "startListening":
-        startListening();
-        return { success: true };
-      case "stopListening":
-        stopListening();
-        return { success: true };
-      case "clearHighlights":
-        clearAllHighlights();
-        return { success: true };
-      case "enterPreview":
-        return { count: enterPreviewMode(payload.text || "", payload.options || {}) };
-      case "togglePreviewMatch":
-        return togglePreviewMatch(payload.index);
-      case "executeDoubleReplace":
-        return executeDoubleReplace(payload.index, payload.replaceText || "");
-      case "applyPreviewedReplacements":
-        return applyPreviewedReplacements(payload.replaceText || "");
-      case "exitPreview":
-        exitPreviewMode();
-        return { success: true };
-      case "getPreviewState":
-        return getPreviewState();
-      default:
-        throw new Error(`Unknown command: ${name}`);
-    }
-  }
-  /**
-   * 监听事件（panel 订阅 engine 事件）
-   * @param {string} eventName - 事件名
-   * @param {Function} handler - 事件处理函数
-   * @returns {Function} 取消订阅函数
-   */
-  on(eventName, handler) {
-    if (!this._listeners.has(eventName)) {
-      this._listeners.set(eventName, []);
-    }
-    this._listeners.get(eventName).push(handler);
-    return () => {
-      const handlers = this._listeners.get(eventName);
-      if (handlers) {
-        const idx = handlers.indexOf(handler);
-        if (idx >= 0) handlers.splice(idx, 1);
-      }
-    };
-  }
-  /**
-   * 触发事件（engine → panel）
-   * @param {string} eventName - 事件名
-   * @param {*} data - 事件数据
-   */
-  emit(eventName, data) {
-    const handlers = this._listeners.get(eventName);
-    if (handlers) {
-      handlers.forEach((handler) => {
-        try {
-          handler(data);
-        } catch (e) {
-          console.error(`[MessageProxy] Error in handler for "${eventName}":`, e);
-        }
-      });
-    }
-  }
-  /**
-   * 移除所有监听器（面板关闭时清理）
-   */
-  clear() {
-    this._listeners.clear();
-  }
-};
-var proxy = new MessageProxy();
-
 // src/styles/panel.css
 var panel_default = "/**\r\n * \u6587\u672C\u66FF\u6362\u9762\u677F\u6837\u5F0F (V2 - CSS \u81EA\u5B9A\u4E49\u5C5E\u6027\u7248)\r\n * \u9762\u677F\u5B9A\u4F4D\u5C5E\u6027\uFF08position/top/right\uFF09\u7531 JS host \u5143\u7D20\u5185\u8054\u8BBE\u7F6E\r\n * \u9875\u9762\u7EA7\u9AD8\u4EAE\u6837\u5F0F\u4FDD\u7559\u5728\u6B64\u6587\u4EF6\u4E2D\r\n */\r\n\r\n/* ============================================\r\n * \u9762\u677F\u5BB9\u5668\r\n * ============================================ */\r\n.tr-panel {\r\n  /* \u5B9A\u4F4D\u5C5E\u6027\u7531 JS \u5728 host \u5143\u7D20\u4E0A\u8BBE\u7F6E */\r\n  width: 400px;\r\n  max-width: calc(100vw - 40px);\r\n  background: var(--tr-bg, #252526);\r\n  border-radius: 6px;\r\n  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);\r\n  z-index: 2147483647;\r\n  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;\r\n  font-size: 13px;\r\n  line-height: 1.4;\r\n  color: var(--tr-text, #cccccc);\r\n  border: 1px solid var(--tr-border, #454545);\r\n}\r\n\r\n/* \u9690\u85CF\u72B6\u6001 */\r\n.tr-panel.tr-hidden {\r\n  display: none;\r\n}\r\n\r\n/* ============================================\r\n * \u8F93\u5165\u5BB9\u5668\r\n * ============================================ */\r\n.tr-input-row {\r\n  display: flex;\r\n  align-items: center;\r\n  padding: 8px 12px;\r\n  gap: 8px;\r\n  border-bottom: 1px solid var(--tr-input-bg, #3c3c3c);\r\n}\r\n\r\n.tr-input-row:last-child {\r\n  border-bottom: none;\r\n}\r\n\r\n/* ============================================\r\n * \u8F93\u5165\u6846\r\n * ============================================ */\r\n.tr-input-wrapper {\r\n  flex: 1;\r\n  position: relative;\r\n  display: flex;\r\n  align-items: center;\r\n}\r\n\r\n.tr-input-wrapper input {\r\n  width: 100%;\r\n  padding: 4px 8px;\r\n  font-size: 13px;\r\n  color: var(--tr-input-text, #cccccc);\r\n  background: var(--tr-input-bg, #3c3c3c);\r\n  border: 1px solid var(--tr-input-bg, #3c3c3c);\r\n  border-radius: 2px;\r\n  outline: none;\r\n  box-sizing: border-box;\r\n}\r\n\r\n.tr-input-wrapper input:focus {\r\n  border-color: #007acc;\r\n  background: var(--tr-input-bg, #3c3c3c);\r\n  box-shadow: 0 0 0 1px #007acc;\r\n}\r\n\r\n.tr-input-wrapper input::placeholder {\r\n  color: var(--tr-placeholder, #858585);\r\n}\r\n\r\n/* ============================================\r\n * \u6309\u94AE\u901A\u7528\u6837\u5F0F\r\n * ============================================ */\r\n.tr-btn {\r\n  display: inline-flex;\r\n  align-items: center;\r\n  justify-content: center;\r\n  min-width: 28px;\r\n  height: 28px;\r\n  padding: 0 8px;\r\n  font-size: 13px;\r\n  font-weight: 400;\r\n  border: none;\r\n  border-radius: 2px;\r\n  cursor: pointer;\r\n  transition: background-color 0.1s ease;\r\n  color: var(--tr-text, #cccccc);\r\n  background: transparent;\r\n  line-height: 1;\r\n}\r\n\r\n.tr-btn:hover {\r\n  background: var(--tr-btn-hover, #3c3c3c);\r\n}\r\n\r\n.tr-btn:active {\r\n  background: var(--tr-btn-active-bg, #454545);\r\n}\r\n\r\n.tr-btn:disabled {\r\n  opacity: 0.4;\r\n  cursor: not-allowed;\r\n}\r\n\r\n/* \u6FC0\u6D3B\u72B6\u6001 */\r\n.tr-btn.tr-active {\r\n  background: var(--tr-accent, #0e639c);\r\n  color: var(--tr-accent-text, #ffffff);\r\n}\r\n\r\n.tr-btn.tr-active:hover {\r\n  background: #1177bb;\r\n}\r\n\r\n/* ============================================\r\n * \u5DE5\u5177\u6309\u94AE\u7EC4\r\n * ============================================ */\r\n.tr-toolbar {\r\n  display: flex;\r\n  align-items: center;\r\n  gap: 2px;\r\n}\r\n\r\n.tr-tool-btn {\r\n  min-width: 24px;\r\n  height: 24px;\r\n  font-size: 11px;\r\n  font-weight: 600;\r\n  padding: 0 4px;\r\n}\r\n\r\n/* \u5173\u95ED\u6309\u94AE */\r\n.tr-close-btn {\r\n  font-size: 18px;\r\n  font-weight: 300;\r\n  min-width: 28px;\r\n}\r\n\r\n/* ============================================\r\n * \u641C\u7D22\u7ED3\u679C\u8BA1\u6570\r\n * ============================================ */\r\n.tr-match-count {\r\n  padding: 0 8px;\r\n  font-size: 12px;\r\n  color: var(--tr-placeholder, #858585);\r\n  white-space: nowrap;\r\n}\r\n\r\n/* \u5BFC\u822A\u6309\u94AE */\r\n.tr-nav-btn {\r\n  min-width: 24px;\r\n  height: 24px;\r\n  font-size: 14px;\r\n}\r\n\r\n/* ============================================\r\n * \u66FF\u6362\u884C\r\n * ============================================ */\r\n.tr-replace-row {\r\n  display: none;\r\n}\r\n\r\n.tr-replace-row.tr-replace-visible {\r\n  display: flex;\r\n}\r\n\r\n/* \u66FF\u6362\u6309\u94AE */\r\n.tr-replace-btn {\r\n  font-size: 12px;\r\n  padding: 0 12px;\r\n}\r\n\r\n.tr-replace-all-btn {\r\n  font-size: 12px;\r\n  padding: 0 12px;\r\n}\r\n\r\n/* \u5207\u6362\u6309\u94AE */\r\n.tr-toggle-btn {\r\n  min-width: 28px;\r\n  font-size: 14px;\r\n}\r\n\r\n/* ============================================\r\n * \u72B6\u6001\u63D0\u793A\r\n * ============================================ */\r\n.tr-status {\r\n  position: absolute;\r\n  bottom: -24px;\r\n  left: 0;\r\n  right: 0;\r\n  padding: 4px 12px;\r\n  font-size: 12px;\r\n  text-align: center;\r\n  border-radius: 0 0 6px 6px;\r\n  display: none;\r\n}\r\n\r\n.tr-status.tr-show {\r\n  display: block;\r\n}\r\n\r\n.tr-status.tr-success {\r\n  background: var(--tr-input-bg, #3c3c3c);\r\n  color: var(--tr-success, #4ec9b0);\r\n}\r\n\r\n.tr-status.tr-warning {\r\n  background: var(--tr-input-bg, #3c3c3c);\r\n  color: var(--tr-warning, #ce9178);\r\n}\r\n\r\n.tr-status.tr-error {\r\n  background: var(--tr-input-bg, #3c3c3c);\r\n  color: var(--tr-error, #f14c4c);\r\n}\r\n\r\n/* ============================================\r\n * \u9875\u9762\u7EA7\u9AD8\u4EAE\u6837\u5F0F (\u7528\u4E8E contenteditable)\r\n * ============================================ */\r\n.tr-highlight-match {\r\n  background: var(--tr-highlight-match, rgba(255, 215, 0, 0.3));\r\n  border-radius: 2px;\r\n}\r\n\r\n.tr-highlight-current {\r\n  background: var(--tr-highlight-current, rgba(255, 100, 0, 0.5));\r\n  border-radius: 2px;\r\n}\r\n\r\n/* \u9884\u89C8\u9009\u4E2D\u6837\u5F0F\uFF08\u7EFF\u8272\uFF09 */\r\n.tr-preview-selected {\r\n  background: rgba(0, 255, 0, 0.4) !important;\r\n  border-radius: 2px;\r\n}\r\n\r\n/* ============================================\r\n * \u8986\u76D6\u5C42\u6837\u5F0F (\u7528\u4E8E input/textarea)\r\n * ============================================ */\r\n.tr-highlight-overlay {\r\n  position: absolute;\r\n  pointer-events: none;\r\n  z-index: 2147483646;\r\n  white-space: pre;\r\n  overflow: hidden;\r\n  background: transparent;\r\n  color: transparent;\r\n}\r\n\r\n.tr-highlight-overlay .tr-highlight-match {\r\n  background: var(--tr-overlay-match, rgba(255, 215, 0, 0.4));\r\n}\r\n\r\n.tr-highlight-overlay .tr-highlight-current {\r\n  background: var(--tr-overlay-current, rgba(255, 100, 0, 0.6));\r\n}\r\n\r\n.tr-highlight-overlay .tr-preview-selected {\r\n  background: rgba(0, 255, 0, 0.4) !important;\r\n  border-radius: 2px;\r\n}\r\n\r\n/* \u5305\u88C5\u5668\u6837\u5F0F */\r\n.tr-highlight-wrapper {\r\n  position: relative;\r\n  display: inline-block;\r\n}\r\n\r\n/* ============================================\r\n * \u6EDA\u52A8\u6761\u6837\u5F0F\r\n * ============================================ */\r\n.tr-panel ::-webkit-scrollbar {\r\n  width: 10px;\r\n  height: 10px;\r\n}\r\n\r\n.tr-panel ::-webkit-scrollbar-track {\r\n  background: var(--tr-scrollbar-track, #1e1e1e);\r\n}\r\n\r\n.tr-panel ::-webkit-scrollbar-thumb {\r\n  background: var(--tr-scrollbar-thumb, #424242);\r\n  border-radius: 5px;\r\n}\r\n\r\n.tr-panel ::-webkit-scrollbar-thumb:hover {\r\n  background: #4f4f4f;\r\n}\r\n\r\n/* ============================================\r\n * \u52A8\u753B\r\n * ============================================ */\r\n@keyframes tr-slide-in {\r\n  from {\r\n    opacity: 0;\r\n    transform: translateY(-10px);\r\n  }\r\n  to {\r\n    opacity: 1;\r\n    transform: translateY(0);\r\n  }\r\n}\r\n\r\n.tr-panel:not(.tr-hidden) {\r\n  animation: tr-slide-in 0.15s ease-out;\r\n}\r\n\r\n/* ============================================\r\n * \u54CD\u5E94\u5F0F - \u5C0F\u5C4F\u5E55\u9002\u914D\r\n * ============================================ */\r\n@media (max-width: 480px) {\r\n  .tr-panel {\r\n    top: 10px;\r\n    right: 10px;\r\n    left: 10px;\r\n    width: auto;\r\n    max-width: none;\r\n  }\r\n\r\n  .tr-input-row {\r\n    padding: 6px 8px;\r\n  }\r\n}\r\n";
 
@@ -1486,6 +1505,14 @@ function renderSearchBar(container, searchOptions3, hidePanel, toggleReplace) {
         await proxy.command("navigate", { direction: "next" });
       }
       setTimeout(() => findInput.focus(), 50);
+    }
+  });
+  findInput.addEventListener("blur", async () => {
+    const text = findInput.value;
+    if (text.trim()) {
+      await saveHistory(text, "", { ...searchOptions3 }).catch(() => {
+      });
+      proxy.emit("history:updated");
     }
   });
   matchCaseBtn.addEventListener("click", () => {
@@ -1550,10 +1577,6 @@ async function performSearch(findInput, searchOptions3, matchCountEl, prevBtn, n
     const hasMatches = result.count > 0;
     prevBtn.disabled = !hasMatches;
     nextBtn.disabled = !hasMatches;
-    if (result.count > 0 && text.trim()) {
-      saveHistory(text, "", { ...searchOptions3 }).catch(() => {
-      });
-    }
     proxy.emit("matches:updated", result);
   }
 }
@@ -2304,6 +2327,17 @@ function renderReplaceBar(container, searchOptions3, getPanelElement2) {
       }, 150);
     }
   });
+  replaceInput.addEventListener("blur", async () => {
+    const panel = getPanelElement2();
+    const findInput = panel ? panel.querySelector(`#${UIConstants.FIND_INPUT_ID}`) : null;
+    const findText = findInput ? findInput.value : "";
+    const replaceText = replaceInput.value;
+    if (findText.trim() || replaceText.trim()) {
+      await saveHistory(findText, replaceText, { ...searchOptions3 }).catch(() => {
+      });
+      proxy.emit("history:updated");
+    }
+  });
   previewBtn.addEventListener("click", async () => {
     if (isPreviewMode) {
       await exitPreview(replaceRow, previewBtn, applyPreviewBtn);
@@ -2315,6 +2349,12 @@ function renderReplaceBar(container, searchOptions3, getPanelElement2) {
     const replaceText = replaceInput.value;
     const result = await proxy.command("applyPreviewedReplacements", { replaceText });
     showStatus(replaceRow, { status: "success", message: `\u5DF2\u66FF\u6362 ${result.replaced} \u5904` });
+    const panelForHistory = getPanelElement2();
+    const findInputForHistory = panelForHistory ? panelForHistory.querySelector(`#${UIConstants.FIND_INPUT_ID}`) : null;
+    const findText = findInputForHistory ? findInputForHistory.value : "";
+    await saveHistory(findText, replaceText, { ...searchOptions3 }).catch(() => {
+    });
+    proxy.emit("history:updated");
     isPreviewMode = false;
     previewBtn.textContent = "\u{1F441}";
     previewBtn.title = "\u9884\u89C8\u66FF\u6362";
@@ -2352,6 +2392,14 @@ function renderReplaceBar(container, searchOptions3, getPanelElement2) {
       applyPreviewBtn.disabled = data.selected === 0;
     }
   });
+  proxy.on("history:updated", () => {
+    if (_historyPanel && _historyPanel.style.display === "flex") {
+      const historyList = _historyPanel.querySelector("#tr-history-list");
+      if (historyList && historyList.style.display !== "none") {
+        loadHistoryItemsForPanel(_historyPanel);
+      }
+    }
+  });
 }
 async function enterPreview(replaceRow, previewBtn, applyPreviewBtn, searchOptions3) {
   const panel = replaceRow.closest(".tr-panel");
@@ -2368,10 +2416,10 @@ async function enterPreview(replaceRow, previewBtn, applyPreviewBtn, searchOptio
     applyPreviewBtn.disabled = true;
     const matchCountEl = panel.querySelector(`#${UIConstants.MATCH_COUNT_ID}`);
     if (matchCountEl) matchCountEl.textContent = `\u9884\u89C8: 0/${result.count} \u9009\u4E2D`;
-    bindOverlayEvents(replaceRow, panel);
+    bindOverlayEvents(replaceRow, panel, searchOptions3);
   }
 }
-function bindOverlayEvents(replaceRow, panel) {
+function bindOverlayEvents(replaceRow, panel, searchOptions3) {
   unbindOverlayEvents();
   let clickTimer = null;
   overlayClickHandler = async (e) => {
@@ -2404,6 +2452,11 @@ function bindOverlayEvents(replaceRow, panel) {
           const state = await proxy.command("getPreviewState");
           matchCountEl.textContent = `\u9884\u89C8: ${state.selected}/${state.total} \u9009\u4E2D`;
         }
+        const findInput = panel.querySelector(`#${UIConstants.FIND_INPUT_ID}`);
+        const findText = findInput ? findInput.value : "";
+        await saveHistory(findText, replaceText, { ...searchOptions3 }).catch(() => {
+        });
+        proxy.emit("history:updated");
         if (dblResult.remaining === 0) {
           const previewBtn = replaceRow.querySelector("#tr-preview-btn");
           const applyPreviewBtn = replaceRow.querySelector("#tr-apply-preview-btn");

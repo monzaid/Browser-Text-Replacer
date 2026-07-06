@@ -83,6 +83,15 @@ export function renderSearchBar(container, searchOptions, hidePanel, toggleRepla
     }
   });
 
+  // --- 失焦时保存历史 ---
+  findInput.addEventListener('blur', async () => {
+    const text = findInput.value;
+    if (text.trim()) {
+      await saveHistory(text, '', { ...searchOptions }).catch(() => {});
+      proxy.emit('history:updated');
+    }
+  });
+
   // --- 工具按钮 toggle ---
   matchCaseBtn.addEventListener('click', () => {
     searchOptions.matchCase = !searchOptions.matchCase;
@@ -165,11 +174,6 @@ async function performSearch(findInput, searchOptions, matchCountEl, prevBtn, ne
     const hasMatches = result.count > 0;
     prevBtn.disabled = !hasMatches;
     nextBtn.disabled = !hasMatches;
-
-    // 记录仅搜索操作（replaceText 为空）
-    if (result.count > 0 && text.trim()) {
-      saveHistory(text, '', { ...searchOptions }).catch(() => {});
-    }
 
     // 通知替换栏更新
     proxy.emit('matches:updated', result);
